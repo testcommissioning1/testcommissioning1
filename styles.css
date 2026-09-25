@@ -345,7 +345,7 @@ main {
 .plant-map {
   position: relative;
   width: 100%;
-  aspect-ratio: 1.9 / 1;
+  aspect-ratio: 2.4 / 1;
   border-radius: 10px;
   overflow: hidden;
   background: #eef1f3;
@@ -1128,4 +1128,148 @@ td input {
 }
 .pending-badge[hidden] {
   display: none;
+}
+
+/* ===== 모바일 컴팩트 레이아웃 (한 화면에 더 많이 보이게) ===== */
+@media (max-width: 820px) {
+  .topbar {
+    padding: 10px 14px;
+  }
+  .topbar h1 {
+    font-size: 20px;
+    margin: 0;
+  }
+  .topbar .eyebrow {
+    font-size: 10px;
+    margin: 0;
+  }
+  .tabs {
+    padding-top: 4px;
+    padding-bottom: 4px;
+  }
+  .tab {
+    min-height: 36px;
+    padding: 0 12px;
+    font-size: 14px;
+  }
+  main {
+    width: calc(100% - 16px);
+    margin: 8px auto 72px;
+  }
+  .panel {
+    padding: 12px;
+  }
+  .panel h2 {
+    font-size: 17px;
+  }
+  .panel-head {
+    margin-bottom: 8px;
+  }
+  #inspectionForm.form-grid,
+  #inspectionForm .form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  #inspectionForm label {
+    font-size: 12px;
+  }
+  #inspectionForm input,
+  #inspectionForm select {
+    min-height: 38px;
+    padding: 6px 10px;
+  }
+
+  /* 자동 점검주기: 한 줄로 */
+  .auto-cycle {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 10px;
+    padding: 8px 12px;
+  }
+  .auto-cycle strong {
+    font-size: 17px;
+  }
+  .auto-cycle small {
+    font-size: 11px;
+  }
+
+  /* 점검 항목: 질문 | 버튼2개 를 한 줄에 */
+  .item-panel,
+  .common-panel {
+    grid-template-columns: 1fr !important;
+    gap: 0;
+    padding: 2px 10px;
+  }
+  .radio-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 6px;
+    border: 0;
+    border-bottom: 1px solid var(--line);
+    border-radius: 0;
+    padding: 6px 0;
+    margin: 0;
+  }
+  .item-panel .radio-row:last-child {
+    border-bottom: 0;
+  }
+  .radio-row legend {
+    float: left;
+    padding: 0;
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.25;
+  }
+  .radio-row label,
+  .item-panel .radio-row label {
+    grid-column: auto;
+    flex: none;
+    min-height: 38px;
+    min-width: 72px;
+    padding: 0 10px;
+    justify-content: center;
+    gap: 5px;
+    font-size: 14px;
+  }
+  .radio-row input {
+    width: 16px;
+    min-height: 16px;
+    margin: 0;
+  }
+
+  #inspectionForm textarea {
+    min-height: 56px;
+  }
+  .file-button {
+    min-height: 40px;
+  }
+
+  /* 하단 버튼: 2 x 2 */
+  #inspectionForm .actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+  #inspectionForm .actions button {
+    min-height: 42px;
+    padding: 0 6px;
+    font-size: 14px;
+    white-space: nowrap;
+  }
+  #inspectionForm .actions button[type="submit"]:not([data-after-submit]) {
+    order: -1;
+  }
+}
+
+/* 배치도: 폰에서는 세로를 조금 더 확보 */
+@media (max-width: 640px) {
+  .plant-map {
+    aspect-ratio: 1.45 / 1;
+  }
+  /* 좁은 칸에서는 "완료/전체" 만 표시 */
+  .plant-zone-badge .badge-open {
+    display: none;
+  }
 }

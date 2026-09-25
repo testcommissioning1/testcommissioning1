@@ -1055,16 +1055,12 @@ const PLANT_MAP_ZONES = [
   "BS EDG",
   "ACC AREA",
   "STG",
-  "ST GSU",
   "HRSG-1 AREA",
   "HRSG-2 AREA",
   "HRSG-3 AREA",
   "GT-1 BLOCK",
   "GT-2 BLOCK",
-  "GT-3 BLOCK",
-  "GT GSU 11",
-  "GT GSU 12",
-  "GT GSU 13"
+  "GT-3 BLOCK"
 ];
 
 function zoneStatsToday(dueItems) {
@@ -1096,7 +1092,7 @@ function renderPlantMap(dueItems) {
     const badge = $("[data-zone-badge]", button);
     button.classList.remove("zone-empty", "zone-complete", "zone-open", "zone-partial");
     button.classList.add(plantZoneClass(stat));
-    badge.textContent = stat && stat.total > 0 ? `${stat.done}/${stat.total} · 남음 ${stat.open}` : "대상 없음";
+    badge.innerHTML = stat && stat.total > 0 ? `${stat.done}/${stat.total}<span class="badge-open"> · 남음 ${stat.open}</span>` : "대상 없음";
   });
 
   const chipsContainer = $("#plantZoneChips");
