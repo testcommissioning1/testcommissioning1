@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>사무실 리포트</title>
+        <meta name="theme-color" content="#1f4e79" />
+    <link rel="manifest" href="manifest.json" />
+    <link rel="icon" href="icons/icon-192.png" />
+    <link rel="stylesheet" href="styles.css?v=20260925g" />
+    <link rel="stylesheet" href="office.css?v=20260925g" />
+  </head>
+  <body>
+    <header class="topbar office-topbar">
+      <div>
+        <p class="eyebrow">Office Report</p>
+        <h1>설비 이력 리포트</h1>
+      </div>
+      <div class="office-actions">
+        <a class="link-button" href="./">현장 앱</a>
+      </div>
+    </header>
+
+    <main class="office-layout">
+      <aside class="panel office-sidebar">
+        <div class="panel-head">
+          <h2>설비 선택</h2>
+        </div>
+        <div class="office-filters">
+          <select id="fieldZoneFilter"></select>
+          <select id="category0Filter"></select>
+          <select id="category1Filter"></select>
+          <input id="equipmentSearch" placeholder="설비명 또는 KKS 검색" />
+        </div>
+        <div class="office-equipment-list" id="equipmentList"></div>
+      </aside>
+
+      <section class="office-main">
+        <section class="panel master-panel">
+          <div class="panel-head">
+            <h2>추가 설비 정보</h2>
+            <button type="button" id="saveMaster">저장</button>
+          </div>
+          <form class="master-grid" id="masterForm">
+            <label>Capacity<input name="capacity" /></label>
+            <label>Head<input name="head" /></label>
+            <label>Speed<input name="speed" /></label>
+            <label>Type/Model/Size<input name="typeModelSize" /></label>
+            <label>Lube<input name="lube" /></label>
+            <label>Driver Output<input name="driverOutput" /></label>
+            <label>Manufacturer<input name="manufacturer" /></label>
+            <label>Location<input name="placeInst" /></label>
+            <label>Drawing No.<input name="drawingNo" /></label>
+          </form>
+        </section>
+
+        <section class="panel report-toolbar">
+          <div>
+            <h2>Equipment Card</h2>
+            <p>빈 제원은 위 입력칸에 나중에 채우면 됩니다.</p>
+          </div>
+          <button type="button" id="printReport">PDF/인쇄</button>
+        </section>
+
+        <section class="equipment-card" id="equipmentCard">
+          <div class="card-title">
+            <h2>EQUIPMENT CARD</h2>
+            <p id="cardPlant">-</p>
+          </div>
+
+          <table class="card-table">
+            <tbody>
+              <tr><td>1</td><th>KKS NUMBER</th><td id="cardKks" colspan="3">-</td></tr>
+              <tr><td>2</td><th>NAME</th><td id="cardName" colspan="3">-</td></tr>
+              <tr><td>3</td><th>CAPACITY</th><td id="cardCapacity">-</td><th>Drawing No.</th><td id="cardDrawingNo">-</td></tr>
+              <tr><td>4</td><th>HEAD</th><td id="cardHead">-</td><th>Page No.</th><td id="cardPageNo">-</td></tr>
+              <tr><td>5</td><th>SPEED</th><td id="cardSpeed" colspan="3">-</td></tr>
+              <tr><td>6</td><th>TYPE/MODEL/SIZE</th><td id="cardTypeModelSize" colspan="3">-</td></tr>
+              <tr><td>7</td><th>LUBE</th><td id="cardLube" colspan="3">-</td></tr>
+              <tr><td>8</td><th>DRIVER OUTPUT</th><td id="cardDriverOutput" colspan="3">-</td></tr>
+              <tr><td>9</td><th>MANUFACTURER</th><td id="cardManufacturer" colspan="3">-</td></tr>
+              <tr><td>10</td><th>LOCATION</th><td id="cardPlaceInst" colspan="3">-</td></tr>
+            </tbody>
+          </table>
+
+          <div class="inspection-trend" id="inspectionTrend"></div>
+
+          <div class="history-title-line">○ HISTORY</div>
+          <table class="history-report-table">
+            <thead>
+              <tr>
+                <th>No</th>
+                <th>DATE</th>
+                <th>PERIOD</th>
+                <th>DESCRIPTION</th>
+                <th>REMARK</th>
+              </tr>
+            </thead>
+            <tbody id="cardHistory"></tbody>
+          </table>
+        </section>
+      </section>
+    </main>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="config.js"></script>
+    <script src="api-adapter.js?v=20260925g"></script>
+    <script src="office.js?v=20260925g"></script>
+  </body>
+</html>
