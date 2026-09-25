@@ -1,11 +1,11 @@
-const CACHE_NAME = "rotating-pm-gas-20260925g";
+const CACHE_NAME = "rotating-pm-gas-20260925h";
 const APP_SHELL = [
   "./",
   "index.html",
   "office.html",
   "config.js",
   "manifest.json",
-  "icons/icon-192.png",
+  "icon-192.png",
   "styles.css?v=20260925g",
   "api-adapter.js?v=20260925g",
   "app.js?v=20260925g",
@@ -67,6 +67,6 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return; // Apps Script, 구글 드라이브 사진은 그대로 통과
 
-  const isVersioned = url.search.includes("v=") || url.pathname.includes("/icons/");
+  const isVersioned = url.search.includes("v=") || url.pathname.endsWith(".png");
   event.respondWith(isVersioned ? cacheFirst(request) : networkThenCache(request));
 });
