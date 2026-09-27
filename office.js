@@ -221,10 +221,16 @@ function inspectionDescription(item) {
   if (answers.noise === "no") pieces.push("소음 없음");
 
   if (answers.oilCondition) pieces.push(`윤활유 ${answers.oilCondition}`);
+  if (answers.oilRefilled === "yes") pieces.push("윤활유 보충 완료");
+  if (answers.oilRefilled === "no") pieces.push("윤활유 미보충");
   if (answers.oilLeak === "yes") pieces.push("윤활유 누유 있음");
   if (answers.oilLeak === "no") pieces.push("윤활유 누유 없음");
+  if (answers.oilLeakFixed === "yes") pieces.push("누유 조치 완료");
+  if (answers.oilLeakFixed === "no") pieces.push("누유 미조치");
   if (answers.pumpFanLeak === "yes") pieces.push("펌프/팬 누수 있음");
   if (answers.pumpFanLeak === "no") pieces.push("펌프/팬 누수 없음");
+  if (answers.pumpFanLeakFixed === "yes") pieces.push("누수 조치 완료");
+  if (answers.pumpFanLeakFixed === "no") pieces.push("누수 미조치");
 
   if (answers.clean === "yes") pieces.push("청소상태 양호");
   if (answers.clean === "no") pieces.push("청소 필요");
@@ -368,7 +374,16 @@ function renderAll() {
   renderFilters();
   renderEquipmentList();
   renderCard();
+  if (window.renderStatusPanel) window.renderStatusPanel(state);
 }
+
+// 점검 현황의 미완료 설비를 누르면 해당 설비 레포트로 이동
+window.officeSelectEquipment = (id) => {
+  state.selectedEquipmentId = id;
+  renderEquipmentList();
+  renderCard();
+  document.getElementById("equipmentCard")?.scrollIntoView({ behavior: "smooth", block: "start" });
+};
 
 async function loadData() {
   try {

@@ -321,15 +321,30 @@
               <label><input type="radio" name="dailyOilCondition" value="정상" checked /> 정상</label>
               <label><input type="radio" name="dailyOilCondition" value="부족" /> 부족</label>
             </fieldset>
+            <fieldset class="radio-row conditional-row" id="oilRefillRow" hidden>
+              <legend>윤활유 보충 여부</legend>
+              <label><input type="radio" name="oilRefilled" value="yes" checked /> 예</label>
+              <label><input type="radio" name="oilRefilled" value="no" /> 아니오</label>
+            </fieldset>
             <fieldset class="radio-row">
               <legend>윤활유 누유 여부</legend>
               <label><input type="radio" name="oilLeak" value="no" checked /> 아니오</label>
               <label><input type="radio" name="oilLeak" value="yes" /> 예</label>
             </fieldset>
+            <fieldset class="radio-row conditional-row" id="oilLeakFixRow" hidden>
+              <legend>누유 조치 여부</legend>
+              <label><input type="radio" name="oilLeakFixed" value="yes" checked /> 예</label>
+              <label><input type="radio" name="oilLeakFixed" value="no" /> 아니오</label>
+            </fieldset>
             <fieldset class="radio-row">
               <legend>펌프/팬 누수 여부</legend>
               <label><input type="radio" name="pumpFanLeak" value="no" checked /> 아니오</label>
               <label><input type="radio" name="pumpFanLeak" value="yes" /> 예</label>
+            </fieldset>
+            <fieldset class="radio-row conditional-row" id="leakFixRow" hidden>
+              <legend>누수 조치 여부</legend>
+              <label><input type="radio" name="pumpFanLeakFixed" value="yes" checked /> 예</label>
+              <label><input type="radio" name="pumpFanLeakFixed" value="no" /> 아니오</label>
             </fieldset>
             <fieldset class="radio-row" data-only-for="EDG">
               <legend>냉각수 누유여부</legend>
@@ -426,6 +441,6 @@
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="config.js"></script>
     <script src="api-adapter.js?v=20260927b"></script>
-    <script src="app.js?v=20260927a"></script>
+    <script src="app.js?v=20260927j"></script>
   </body>
 </html>

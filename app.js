@@ -434,10 +434,51 @@ function answerPayload(form, cycle) {
     clean: checkedValue(form, "dailyClean"),
     noise: start === "yes" ? checkedValue(form, "dailyNoise") : "not_applicable",
     oilCondition: checkedValue(form, "dailyOilCondition"),
+    ...(checkedValue(form, "dailyOilCondition") === "부족" ? { oilRefilled: checkedValue(form, "oilRefilled") } : {}),
     oilLeak: checkedValue(form, "oilLeak"),
+    ...(checkedValue(form, "oilLeak") === "yes" ? { oilLeakFixed: checkedValue(form, "oilLeakFixed") } : {}),
     pumpFanLeak: checkedValue(form, "pumpFanLeak"),
+    ...(checkedValue(form, "pumpFanLeak") === "yes" ? { pumpFanLeakFixed: checkedValue(form, "pumpFanLeakFixed") } : {}),
     coolingWaterLeak: checkedValue(form, "coolingWaterLeak")
   };
+}
+
+// 윤활유 누유 "예"일 때만 누유 조치 여부 표시
+function updateOilLeakFixVisibility() {
+  const row = $("#oilLeakFixRow");
+  if (!row) return;
+  const leak = checkedValue($("#inspectionForm"), "oilLeak") === "yes";
+  row.hidden = !leak;
+  if (!leak) {
+    const yes = $('input[name="oilLeakFixed"][value="yes"]', $("#inspectionForm"));
+    if (yes) yes.checked = true;
+  }
+}
+
+// 펌프/팬 누수 "예"일 때만 누수 조치 여부 표시
+function updateLeakFixVisibility() {
+  updateOilLeakFixVisibility();
+  const row = $("#leakFixRow");
+  if (!row) return;
+  const leak = checkedValue($("#inspectionForm"), "pumpFanLeak") === "yes";
+  row.hidden = !leak;
+  if (!leak) {
+    const yes = $('input[name="pumpFanLeakFixed"][value="yes"]', $("#inspectionForm"));
+    if (yes) yes.checked = true;
+  }
+}
+
+// 윤활유 "부족"일 때만 보충 여부 표시
+function updateOilRefillVisibility() {
+  updateLeakFixVisibility();
+  const row = $("#oilRefillRow");
+  if (!row) return;
+  const low = checkedValue($("#inspectionForm"), "dailyOilCondition") === "부족";
+  row.hidden = !low;
+  if (!low) {
+    const yes = $('input[name="oilRefilled"][value="yes"]', $("#inspectionForm"));
+    if (yes) yes.checked = true;
+  }
 }
 
 function updateFilterCleanedVisibility() {
@@ -1295,8 +1336,11 @@ function renderHistoryDetail(item) {
     detailRow("기동 여부", escapeHtml(displayYesNo(answers.start))),
     detailRow("이음 여부", escapeHtml(displayYesNo(answers.noise))),
     detailRow("윤활유 상태", escapeHtml(answers.oilCondition || "-")),
+    ...(answers.oilCondition === "부족" ? [detailRow("윤활유 보충", escapeHtml(displayYesNo(answers.oilRefilled)))] : []),
     detailRow("윤활유 누유", escapeHtml(displayYesNo(answers.oilLeak))),
-    detailRow("펌프/팬 누수", escapeHtml(displayYesNo(answers.pumpFanLeak)))
+    ...(answers.oilLeak === "yes" ? [detailRow("누유 조치", escapeHtml(displayYesNo(answers.oilLeakFixed)))] : []),
+    detailRow("펌프/팬 누수", escapeHtml(displayYesNo(answers.pumpFanLeak))),
+    ...(answers.pumpFanLeak === "yes" ? [detailRow("누수 조치", escapeHtml(displayYesNo(answers.pumpFanLeakFixed)))] : [])
   ];
 
   if (equipmentCategory(equipment, 1) === "EDG") {
@@ -1383,6 +1427,7 @@ function resetInspectionFormAfterSubmit(inspectorName) {
   renderEquipmentPicker();
   updateNoiseVisibility("daily");
   updateCommonInspectionVisibility();
+  updateOilRefillVisibility();
 }
 
 function continueAfterInspectionSubmit({ goNextAfterSave, previousEquipmentId, offline = false, equipmentName = "" }) {
@@ -1729,7 +1774,10 @@ function bindEvents() {
 
   $("#inspectionForm").addEventListener("reset", () => {
     state.photos = [];
-    window.setTimeout(renderPhotoPreview, 0);
+    window.setTimeout(() => {
+      renderPhotoPreview();
+      updateOilRefillVisibility();
+    }, 0);
   });
 
   let inspectionSubmitting = false;
@@ -1787,6 +1835,18 @@ function bindEvents() {
       submitButtons.forEach((button) => (button.disabled = false));
       hideBusy();
     }
+  });
+
+  $$('input[name="oilLeak"]').forEach((input) => {
+    input.addEventListener("change", updateOilLeakFixVisibility);
+  });
+
+  $$('input[name="pumpFanLeak"]').forEach((input) => {
+    input.addEventListener("change", updateLeakFixVisibility);
+  });
+
+  $$('input[name="dailyOilCondition"]').forEach((input) => {
+    input.addEventListener("change", updateOilRefillVisibility);
   });
 
   $$('input[name="filterBlocked"]').forEach((input) => {
@@ -1878,6 +1938,7 @@ async function init() {
   updateInspectionCycle();
   updateNoiseVisibility("daily");
   updateCommonInspectionVisibility();
+  updateOilRefillVisibility();
   await loadData();
 }
 
