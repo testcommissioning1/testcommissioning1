@@ -87,7 +87,7 @@ function setStoredAppCode(code) {
 async function ensureAppCode() {
   if (appCodeChecked) return;
   try {
-    const health = await apiFetch("/api/health").then((r) => r.json());
+    const health = await fetch("/api/health").then((r) => r.json());
     if (health.codeRequired && !getStoredAppCode()) {
       const input = window.prompt("현장 코드를 입력하세요.");
       if (input) setStoredAppCode(input.trim());
@@ -105,7 +105,7 @@ async function api(path, options = {}) {
   };
   const storedCode = getStoredAppCode();
   if (storedCode) headers["x-app-code"] = storedCode;
-  const response = await apiFetch(path, { ...options, headers });
+  const response = await fetch(path, { ...options, headers });
   const data = await response.json().catch(() => ({}));
   if (response.status === 401) {
     setStoredAppCode("");
@@ -186,8 +186,12 @@ function lastInspectorName() {
 }
 
 function pendingInspections() {
-  // 미전송 기록은 IndexedDB(OfflineStore)에 보관합니다. 사진이 많아도 저장 가능.
-  return window.OfflineStore.getPending();
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PENDING_INSPECTIONS_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
 
 function pendingInspectionPayloads() {
@@ -195,39 +199,22 @@ function pendingInspectionPayloads() {
 }
 
 function savePendingInspections(items) {
-  return window.OfflineStore.setPending(items);
-}
-
-function newOfflineId() {
-  return window.crypto && typeof window.crypto.randomUUID === "function"
-    ? window.crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function renderPendingBadge(count) {
-  let badge = document.getElementById("pendingBadge");
-  if (!badge) {
-    badge = document.createElement("button");
-    badge.id = "pendingBadge";
-    badge.type = "button";
-    badge.className = "pending-badge";
-    badge.addEventListener("click", () => syncPendingInspections());
-    document.body.appendChild(badge);
-  }
-  badge.hidden = !count;
-  badge.textContent = navigator.onLine ? `미전송 ${count}건 · 지금 전송` : `미전송 ${count}건 · 오프라인`;
+  localStorage.setItem(PENDING_INSPECTIONS_KEY, JSON.stringify(items));
 }
 
 function queuePendingInspection(payload) {
-  const offlineId = payload.offlineId || newOfflineId();
-  payload.offlineId = offlineId;
+  const offlineId =
+    window.crypto && typeof window.crypto.randomUUID === "function"
+      ? window.crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
   const item = {
     offlineId,
     queuedAt: new Date().toISOString(),
     payload
   };
-  return savePendingInspections([...pendingInspections(), item]).then(() => item);
+  savePendingInspections([...pendingInspections(), item]);
+  return item;
 }
 
 function isLikelyNetworkError(error) {
@@ -239,21 +226,9 @@ async function postInspectionPayload(payload) {
   return api("/api/inspections", { method: "POST", body: JSON.stringify(payload) });
 }
 
-let pendingSyncRunning = false;
-
 async function syncPendingInspections({ silent = false } = {}) {
-  if (pendingSyncRunning) return 0;
   const pending = pendingInspections();
   if (!pending.length || !navigator.onLine) return 0;
-  pendingSyncRunning = true;
-  try {
-    return await syncPendingInspectionsNow(pending, silent);
-  } finally {
-    pendingSyncRunning = false;
-  }
-}
-
-async function syncPendingInspectionsNow(pending, silent) {
 
   const remaining = [];
   let sent = 0;
@@ -261,9 +236,7 @@ async function syncPendingInspectionsNow(pending, silent) {
   for (let index = 0; index < pending.length; index += 1) {
     const item = pending[index];
     try {
-      const payload = item.payload || item;
-      if (!payload.offlineId && item.offlineId) payload.offlineId = item.offlineId;
-      await postInspectionPayload(payload);
+      await postInspectionPayload(item.payload || item);
       sent += 1;
     } catch (error) {
       remaining.push(item, ...pending.slice(index + 1));
@@ -272,9 +245,7 @@ async function syncPendingInspectionsNow(pending, silent) {
     }
   }
 
-  // 전송 중 새로 추가된 기록은 유지
-  const sentItems = pending.filter((item) => !remaining.includes(item));
-  await savePendingInspections(pendingInspections().filter((item) => !sentItems.includes(item)));
+  savePendingInspections(remaining);
   if (sent > 0) {
     if (!silent) showToast(`오프라인 저장 ${sent}건을 서버로 보냈습니다.`);
     await loadData({ syncPending: false });
@@ -284,12 +255,11 @@ async function syncPendingInspectionsNow(pending, silent) {
 
 function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
-  const register = () =>
-    navigator.serviceWorker.register("sw.js").catch(() => {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {
       console.info("Service worker registration skipped.");
     });
-  if (document.readyState === "complete") register();
-  else window.addEventListener("load", register);
+  });
 }
 
 function equipmentCategory(item, index) {
@@ -1055,12 +1025,16 @@ const PLANT_MAP_ZONES = [
   "BS EDG",
   "ACC AREA",
   "STG",
+  "ST GSU",
   "HRSG-1 AREA",
   "HRSG-2 AREA",
   "HRSG-3 AREA",
   "GT-1 BLOCK",
   "GT-2 BLOCK",
-  "GT-3 BLOCK"
+  "GT-3 BLOCK",
+  "GT GSU 11",
+  "GT GSU 12",
+  "GT GSU 13"
 ];
 
 function zoneStatsToday(dueItems) {
@@ -1092,7 +1066,7 @@ function renderPlantMap(dueItems) {
     const badge = $("[data-zone-badge]", button);
     button.classList.remove("zone-empty", "zone-complete", "zone-open", "zone-partial");
     button.classList.add(plantZoneClass(stat));
-    badge.innerHTML = stat && stat.total > 0 ? `${stat.done}/${stat.total}<span class="badge-open"> · 남음 ${stat.open}</span>` : "대상 없음";
+    badge.textContent = stat && stat.total > 0 ? `${stat.done}/${stat.total} · 남음 ${stat.open}` : "대상 없음";
   });
 
   const chipsContainer = $("#plantZoneChips");
@@ -1670,8 +1644,7 @@ function bindEvents() {
       cycle,
       resultStatus: "complete",
       answers: answerPayload(form, cycle),
-      photos: state.photos,
-      offlineId: newOfflineId()
+      photos: state.photos
     };
 
     try {
@@ -1686,7 +1659,7 @@ function bindEvents() {
         return;
       }
 
-      await queuePendingInspection(payload);
+      queuePendingInspection(payload);
       const rememberedInspector = rememberInspectorName(inspectorName);
       resetInspectionFormAfterSubmit(rememberedInspector);
       renderDashboard();
@@ -1763,10 +1736,6 @@ function bindEvents() {
 }
 
 async function init() {
-  await window.OfflineStore.init();
-  window.OfflineStore.onChange(renderPendingBadge);
-  renderPendingBadge(pendingInspections().length);
-  window.addEventListener("offline", () => renderPendingBadge(pendingInspections().length));
   await ensureAppCode();
   $('input[name="inspectionDate"]').value = todayText();
   $('input[name="inspector"]').value = lastInspectorName();
@@ -1778,7 +1747,6 @@ async function init() {
   bindEvents();
   registerServiceWorker();
   window.addEventListener("online", () => {
-    renderPendingBadge(pendingInspections().length);
     syncPendingInspections();
   });
   updateInspectionCycle();
