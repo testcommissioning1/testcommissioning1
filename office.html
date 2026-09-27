@@ -8,7 +8,7 @@
     <link rel="manifest" href="manifest.json" />
     <link rel="icon" href="icon-192.png" />
     <link rel="stylesheet" href="styles.css?v=20260927a" />
-    <link rel="stylesheet" href="office.css?v=20260925g" />
+    <link rel="stylesheet" href="office.css?v=20260927b" />
   </head>
   <body>
     <header class="topbar office-topbar">
@@ -17,6 +17,11 @@
         <h1>설비 이력 리포트</h1>
       </div>
       <div class="office-actions">
+        <button type="button" class="secondary" id="excelTemplate">엑셀 양식 내려받기</button>
+        <label class="link-button file-label">
+          엑셀 불러오기
+          <input type="file" id="excelImport" accept=".xlsx,.xls" hidden />
+        </label>
         <a class="link-button" href="./">현장 앱</a>
       </div>
     </header>
@@ -83,7 +88,6 @@
             </tbody>
           </table>
 
-          <div class="inspection-trend" id="inspectionTrend"></div>
 
           <div class="history-title-line">○ HISTORY</div>
           <table class="history-report-table">
@@ -104,7 +108,7 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="config.js"></script>
-    <script src="api-adapter.js?v=20260925g"></script>
-    <script src="office.js?v=20260925g"></script>
+    <script src="api-adapter.js?v=20260927b"></script>
+    <script src="office.js?v=20260927c"></script>
   </body>
 </html>

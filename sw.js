@@ -1,4 +1,4 @@
-const CACHE_NAME = "rotating-pm-gas-20260927a";
+const CACHE_NAME = "rotating-pm-gas-20260927c";
 const APP_SHELL = [
   "./",
   "index.html",
@@ -7,10 +7,10 @@ const APP_SHELL = [
   "manifest.json",
   "icon-192.png",
   "styles.css?v=20260927a",
-  "api-adapter.js?v=20260925g",
+  "api-adapter.js?v=20260927b",
   "app.js?v=20260927a",
-  "office.css?v=20260925g",
-  "office.js?v=20260925g"
+  "office.css?v=20260927b",
+  "office.js?v=20260927c"
 ];
 
 self.addEventListener("install", (event) => {
