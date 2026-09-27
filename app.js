@@ -64,6 +64,63 @@ function showToast(message, type = "info") {
   }, 2600);
 }
 
+// ===== 저장 중 표시 / 결과 안내창 =====
+function ensureFeedbackElements() {
+  if (document.getElementById("busyOverlay")) return;
+  const busy = document.createElement("div");
+  busy.id = "busyOverlay";
+  busy.className = "busy-overlay";
+  busy.hidden = true;
+  busy.innerHTML = '<div class="busy-box"><div class="busy-spinner"></div><strong id="busyText">저장 중입니다</strong><small id="busySub">사진이 있으면 시간이 조금 걸립니다. 화면을 닫지 마세요.</small></div>';
+  document.body.appendChild(busy);
+
+  const result = document.createElement("div");
+  result.id = "resultOverlay";
+  result.className = "result-overlay";
+  result.hidden = true;
+  result.innerHTML = '<div class="result-box" role="alertdialog" aria-live="assertive"><div class="result-icon" id="resultIcon"></div><strong id="resultTitle"></strong><p id="resultDetail"></p><button type="button" id="resultOk">확인</button></div>';
+  document.body.appendChild(result);
+  const close = () => {
+    result.hidden = true;
+    window.clearTimeout(showResult.timer);
+  };
+  result.addEventListener("click", (event) => {
+    if (event.target === result || event.target.id === "resultOk") close();
+  });
+}
+
+function showBusy(text = "저장 중입니다", sub = "사진이 있으면 시간이 조금 걸립니다. 화면을 닫지 마세요.") {
+  ensureFeedbackElements();
+  $("#busyText").textContent = text;
+  $("#busySub").textContent = sub;
+  $("#busyOverlay").hidden = false;
+}
+
+function hideBusy() {
+  const busy = document.getElementById("busyOverlay");
+  if (busy) busy.hidden = true;
+}
+
+// type: "success" | "offline" | "error"
+function showResult(type, title, detail = "") {
+  ensureFeedbackElements();
+  hideBusy();
+  const icons = { success: "✓", offline: "⏳", error: "!" };
+  const box = $("#resultOverlay .result-box");
+  box.className = `result-box result-${type}`;
+  $("#resultIcon").textContent = icons[type] || "i";
+  $("#resultTitle").textContent = title;
+  $("#resultDetail").textContent = detail;
+  $("#resultOverlay").hidden = false;
+  if (navigator.vibrate) navigator.vibrate(type === "error" ? [80, 60, 80] : 60);
+  window.clearTimeout(showResult.timer);
+  if (type !== "error") {
+    showResult.timer = window.setTimeout(() => {
+      $("#resultOverlay").hidden = true;
+    }, type === "offline" ? 6000 : 2500);
+  }
+}
+
 const APP_CODE_KEY = "rotatingEquipmentAppCode";
 let appCodeChecked = false;
 
@@ -87,7 +144,7 @@ function setStoredAppCode(code) {
 async function ensureAppCode() {
   if (appCodeChecked) return;
   try {
-    const health = await fetch("/api/health").then((r) => r.json());
+    const health = await apiFetch("/api/health").then((r) => r.json());
     if (health.codeRequired && !getStoredAppCode()) {
       const input = window.prompt("현장 코드를 입력하세요.");
       if (input) setStoredAppCode(input.trim());
@@ -105,7 +162,7 @@ async function api(path, options = {}) {
   };
   const storedCode = getStoredAppCode();
   if (storedCode) headers["x-app-code"] = storedCode;
-  const response = await fetch(path, { ...options, headers });
+  const response = await apiFetch(path, { ...options, headers });
   const data = await response.json().catch(() => ({}));
   if (response.status === 401) {
     setStoredAppCode("");
@@ -186,12 +243,8 @@ function lastInspectorName() {
 }
 
 function pendingInspections() {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(PENDING_INSPECTIONS_KEY) || "[]");
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+  // 미전송 기록은 IndexedDB(OfflineStore)에 보관합니다. 사진이 많아도 저장 가능.
+  return window.OfflineStore.getPending();
 }
 
 function pendingInspectionPayloads() {
@@ -199,22 +252,39 @@ function pendingInspectionPayloads() {
 }
 
 function savePendingInspections(items) {
-  localStorage.setItem(PENDING_INSPECTIONS_KEY, JSON.stringify(items));
+  return window.OfflineStore.setPending(items);
+}
+
+function newOfflineId() {
+  return window.crypto && typeof window.crypto.randomUUID === "function"
+    ? window.crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function renderPendingBadge(count) {
+  let badge = document.getElementById("pendingBadge");
+  if (!badge) {
+    badge = document.createElement("button");
+    badge.id = "pendingBadge";
+    badge.type = "button";
+    badge.className = "pending-badge";
+    badge.addEventListener("click", () => syncPendingInspections());
+    document.body.appendChild(badge);
+  }
+  badge.hidden = !count;
+  badge.textContent = navigator.onLine ? `미전송 ${count}건 · 지금 전송` : `미전송 ${count}건 · 오프라인`;
 }
 
 function queuePendingInspection(payload) {
-  const offlineId =
-    window.crypto && typeof window.crypto.randomUUID === "function"
-      ? window.crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const offlineId = payload.offlineId || newOfflineId();
+  payload.offlineId = offlineId;
 
   const item = {
     offlineId,
     queuedAt: new Date().toISOString(),
     payload
   };
-  savePendingInspections([...pendingInspections(), item]);
-  return item;
+  return savePendingInspections([...pendingInspections(), item]).then(() => item);
 }
 
 function isLikelyNetworkError(error) {
@@ -226,9 +296,21 @@ async function postInspectionPayload(payload) {
   return api("/api/inspections", { method: "POST", body: JSON.stringify(payload) });
 }
 
+let pendingSyncRunning = false;
+
 async function syncPendingInspections({ silent = false } = {}) {
+  if (pendingSyncRunning) return 0;
   const pending = pendingInspections();
   if (!pending.length || !navigator.onLine) return 0;
+  pendingSyncRunning = true;
+  try {
+    return await syncPendingInspectionsNow(pending, silent);
+  } finally {
+    pendingSyncRunning = false;
+  }
+}
+
+async function syncPendingInspectionsNow(pending, silent) {
 
   const remaining = [];
   let sent = 0;
@@ -236,7 +318,9 @@ async function syncPendingInspections({ silent = false } = {}) {
   for (let index = 0; index < pending.length; index += 1) {
     const item = pending[index];
     try {
-      await postInspectionPayload(item.payload || item);
+      const payload = item.payload || item;
+      if (!payload.offlineId && item.offlineId) payload.offlineId = item.offlineId;
+      await postInspectionPayload(payload);
       sent += 1;
     } catch (error) {
       remaining.push(item, ...pending.slice(index + 1));
@@ -245,7 +329,9 @@ async function syncPendingInspections({ silent = false } = {}) {
     }
   }
 
-  savePendingInspections(remaining);
+  // 전송 중 새로 추가된 기록은 유지
+  const sentItems = pending.filter((item) => !remaining.includes(item));
+  await savePendingInspections(pendingInspections().filter((item) => !sentItems.includes(item)));
   if (sent > 0) {
     if (!silent) showToast(`오프라인 저장 ${sent}건을 서버로 보냈습니다.`);
     await loadData({ syncPending: false });
@@ -255,11 +341,12 @@ async function syncPendingInspections({ silent = false } = {}) {
 
 function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch(() => {
+  const register = () =>
+    navigator.serviceWorker.register("sw.js").catch(() => {
       console.info("Service worker registration skipped.");
     });
-  });
+  if (document.readyState === "complete") register();
+  else window.addEventListener("load", register);
 }
 
 function equipmentCategory(item, index) {
@@ -1025,16 +1112,12 @@ const PLANT_MAP_ZONES = [
   "BS EDG",
   "ACC AREA",
   "STG",
-  "ST GSU",
   "HRSG-1 AREA",
   "HRSG-2 AREA",
   "HRSG-3 AREA",
   "GT-1 BLOCK",
   "GT-2 BLOCK",
-  "GT-3 BLOCK",
-  "GT GSU 11",
-  "GT GSU 12",
-  "GT GSU 13"
+  "GT-3 BLOCK"
 ];
 
 function zoneStatsToday(dueItems) {
@@ -1066,7 +1149,7 @@ function renderPlantMap(dueItems) {
     const badge = $("[data-zone-badge]", button);
     button.classList.remove("zone-empty", "zone-complete", "zone-open", "zone-partial");
     button.classList.add(plantZoneClass(stat));
-    badge.textContent = stat && stat.total > 0 ? `${stat.done}/${stat.total} · 남음 ${stat.open}` : "대상 없음";
+    badge.innerHTML = stat && stat.total > 0 ? `${stat.done}/${stat.total}<span class="badge-open"> · 남음 ${stat.open}</span>` : "대상 없음";
   });
 
   const chipsContainer = $("#plantZoneChips");
@@ -1273,35 +1356,55 @@ function renderAll() {
   renderUtilityTab();
 }
 
+function renderPhotoPreview() {
+  const grid = $(".photo-preview-grid");
+  const count = state.photos.length;
+  grid.innerHTML = state.photos
+    .map(
+      (photo, index) => `
+        <div class="photo-thumb">
+          <img src="${photo.dataUrl}" alt="점검 사진 ${index + 1}" title="${Math.round(photo.compressedBytes / 1024)}KB" />
+          <button type="button" class="photo-remove" data-remove-photo="${index}" aria-label="사진 ${index + 1} 삭제">×</button>
+        </div>`
+    )
+    .join("");
+  $("#photoPreview").hidden = count === 0;
+  const counter = $("#photoCount");
+  if (counter) counter.textContent = count ? `사진 ${count}/${PHOTO_MAX_COUNT}장 · 계속 촬영하면 추가됩니다` : "";
+}
+
 function resetInspectionFormAfterSubmit(inspectorName) {
   const form = $("#inspectionForm");
   form.reset();
   form.elements.inspectionDate.value = todayText();
   form.elements.inspector.value = inspectorName;
   state.photos = [];
-  $("#photoPreview").hidden = true;
-  $(".photo-preview-grid").innerHTML = "";
+  renderPhotoPreview();
   renderEquipmentPicker();
   updateNoiseVisibility("daily");
   updateCommonInspectionVisibility();
 }
 
-function continueAfterInspectionSubmit({ goNextAfterSave, previousEquipmentId, offline = false }) {
+function continueAfterInspectionSubmit({ goNextAfterSave, previousEquipmentId, offline = false, equipmentName = "" }) {
+  const title = offline ? "폰에 임시 저장했습니다" : "점검이 저장되었습니다";
+  const offlineNote = "인터넷이 연결되면 자동으로 전송됩니다. (오른쪽 아래 미전송 표시 확인)";
+  const name = equipmentName ? `${equipmentName}\n` : "";
+
   if (goNextAfterSave) {
     if (selectNextOpenInspection(previousEquipmentId)) {
       setActiveView("inspection");
       $("#inspectionForm").scrollIntoView({ behavior: "smooth", block: "start" });
-      showToast(offline ? "임시 저장했습니다. 다음 미완료 설비로 이동했습니다." : "저장되었습니다. 다음 미완료 설비로 이동했습니다.");
+      showResult(offline ? "offline" : "success", title, `${name}${offline ? offlineNote + "\n" : ""}다음 미완료 설비로 이동했습니다.`);
       return;
     }
 
     setActiveView("dashboard");
     renderDashboard();
-    showToast(offline ? "임시 저장했습니다. 오늘 남은 미완료 설비가 없습니다." : "저장되었습니다. 오늘 남은 미완료 설비가 없습니다.");
+    showResult(offline ? "offline" : "success", title, `${name}${offline ? offlineNote + "\n" : ""}오늘 남은 미완료 설비가 없습니다.`);
     return;
   }
 
-  showToast(offline ? "인터넷 연결이 불안정해서 이 점검은 임시 저장했습니다. 온라인이 되면 자동 전송됩니다." : "점검 기록이 저장되었습니다.");
+  showResult(offline ? "offline" : "success", title, `${name}${offline ? offlineNote : ""}`.trim());
   setActiveView("history");
 }
 
@@ -1624,8 +1727,15 @@ function bindEvents() {
     }
   });
 
+  $("#inspectionForm").addEventListener("reset", () => {
+    state.photos = [];
+    window.setTimeout(renderPhotoPreview, 0);
+  });
+
+  let inspectionSubmitting = false;
   $("#inspectionForm").addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (inspectionSubmitting) return; // 두 번 눌러도 한 번만 저장
     const form = event.currentTarget;
     const equipment = getSelectedEquipment();
     const goNextAfterSave = event.submitter?.dataset.afterSubmit === "next";
@@ -1644,26 +1754,38 @@ function bindEvents() {
       cycle,
       resultStatus: "complete",
       answers: answerPayload(form, cycle),
-      photos: state.photos
+      photos: state.photos,
+      offlineId: newOfflineId()
     };
+
+    inspectionSubmitting = true;
+    const submitButtons = $$('button[type="submit"]', form);
+    submitButtons.forEach((button) => (button.disabled = true));
+    const photoCount = (state.photos || []).length;
+    showBusy("점검 저장 중입니다", photoCount ? `사진 ${photoCount}장을 올리는 중입니다. 화면을 닫지 마세요.` : "잠시만 기다려주세요.");
 
     try {
       await postInspectionPayload(payload);
       const rememberedInspector = rememberInspectorName(inspectorName);
       resetInspectionFormAfterSubmit(rememberedInspector);
+      showBusy("저장 완료 – 목록을 새로 불러오는 중", "");
       await loadData();
-      continueAfterInspectionSubmit({ goNextAfterSave, previousEquipmentId: equipment.id });
+      continueAfterInspectionSubmit({ goNextAfterSave, previousEquipmentId: equipment.id, equipmentName: equipment.name });
     } catch (error) {
       if (!isLikelyNetworkError(error)) {
-        showToast(error.message, "error");
+        showResult("error", "저장하지 못했습니다", error.message || "다시 시도해주세요.");
         return;
       }
 
-      queuePendingInspection(payload);
+      await queuePendingInspection(payload);
       const rememberedInspector = rememberInspectorName(inspectorName);
       resetInspectionFormAfterSubmit(rememberedInspector);
       renderDashboard();
-      continueAfterInspectionSubmit({ goNextAfterSave, previousEquipmentId: equipment.id, offline: true });
+      continueAfterInspectionSubmit({ goNextAfterSave, previousEquipmentId: equipment.id, offline: true, equipmentName: equipment.name });
+    } finally {
+      inspectionSubmitting = false;
+      submitButtons.forEach((button) => (button.disabled = false));
+      hideBusy();
     }
   });
 
@@ -1678,46 +1800,45 @@ function bindEvents() {
     });
   });
 
+  // 사진: 촬영/선택할 때마다 "추가"됩니다 (최대 PHOTO_MAX_COUNT 장). 썸네일의 ×로 개별 삭제.
+  $(".photo-preview-grid").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-remove-photo]");
+    if (!button) return;
+    state.photos.splice(Number(button.dataset.removePhoto), 1);
+    renderPhotoPreview();
+  });
+
   $$("[data-photo-input]").forEach((input) => input.addEventListener("change", async (event) => {
     const files = [...(event.target.files || [])];
-    if (files.length === 0) {
-      state.photos = [];
-      $("#photoPreview").hidden = true;
-      $(".photo-preview-grid").innerHTML = "";
+    event.target.value = ""; // 같은 버튼으로 계속 추가 촬영할 수 있게 초기화
+    if (files.length === 0) return;
+
+    const room = PHOTO_MAX_COUNT - state.photos.length;
+    if (room <= 0) {
+      showToast(`사진은 점검 1건에 최대 ${PHOTO_MAX_COUNT}장까지입니다. 필요 없는 사진을 ×로 지우세요.`, "error");
       return;
     }
-
-    if (files.length > PHOTO_MAX_COUNT) {
-      showToast(`사진은 한 번에 최대 ${PHOTO_MAX_COUNT}장까지 등록할 수 있습니다.`, "error");
-      event.target.value = "";
-      return;
+    const accepted = files.slice(0, room);
+    if (files.length > room) {
+      showToast(`최대 ${PHOTO_MAX_COUNT}장이라 ${accepted.length}장만 추가했습니다.`, "error");
     }
 
-    const totalSize = files.reduce((sum, file) => sum + file.size, 0);
-    if (files.some((file) => file.size > PHOTO_MAX_SOURCE_BYTES) || totalSize > PHOTO_MAX_TOTAL_SOURCE_BYTES) {
+    const totalSize = accepted.reduce((sum, file) => sum + file.size, 0);
+    if (accepted.some((file) => file.size > PHOTO_MAX_SOURCE_BYTES) || totalSize > PHOTO_MAX_TOTAL_SOURCE_BYTES) {
       showToast("원본 사진이 너무 큽니다. 사진을 조금 줄여서 다시 선택해주세요.", "error");
-      event.target.value = "";
       return;
     }
 
     try {
-      showToast("사진 용량을 자동으로 줄이는 중입니다.");
-      const compressedPhotos = [];
-      for (const [index, file] of files.entries()) {
-        compressedPhotos.push(await compressPhoto(file, index));
+      showBusy("사진 준비 중입니다", `${accepted.length}장 용량을 줄이는 중...`);
+      for (const file of accepted) {
+        state.photos.push(await compressPhoto(file, state.photos.length));
       }
-
-      state.photos = compressedPhotos;
-      $(".photo-preview-grid").innerHTML = state.photos
-        .map((photo) => `<img src="${photo.dataUrl}" alt="점검 사진 미리보기" title="${Math.round(photo.compressedBytes / 1024)}KB" />`)
-        .join("");
-      $("#photoPreview").hidden = false;
-      showToast("사진이 저장용 크기로 자동 조정되었습니다.");
+      hideBusy();
+      renderPhotoPreview();
     } catch (error) {
-      state.photos = [];
-      $("#photoPreview").hidden = true;
-      $(".photo-preview-grid").innerHTML = "";
-      event.target.value = "";
+      hideBusy();
+      renderPhotoPreview();
       showToast(error.message || "사진을 처리하지 못했습니다.", "error");
     }
   }));
@@ -1736,6 +1857,10 @@ function bindEvents() {
 }
 
 async function init() {
+  await window.OfflineStore.init();
+  window.OfflineStore.onChange(renderPendingBadge);
+  renderPendingBadge(pendingInspections().length);
+  window.addEventListener("offline", () => renderPendingBadge(pendingInspections().length));
   await ensureAppCode();
   $('input[name="inspectionDate"]').value = todayText();
   $('input[name="inspector"]').value = lastInspectorName();
@@ -1747,6 +1872,7 @@ async function init() {
   bindEvents();
   registerServiceWorker();
   window.addEventListener("online", () => {
+    renderPendingBadge(pendingInspections().length);
     syncPendingInspections();
   });
   updateInspectionCycle();
