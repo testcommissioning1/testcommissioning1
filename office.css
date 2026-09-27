@@ -330,3 +330,76 @@
     flex-direction: column;
   }
 }
+
+.file-label {
+  cursor: pointer;
+}
+.office-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Equipment Card 상단 표(1~11번) 줄 간격 줄이기 */
+.card-table th,
+.card-table td {
+  padding: 2px 8px;
+  font-size: 15px;
+  line-height: 1.25;
+}
+
+/* HISTORY 표 열 너비: No+DATE+PERIOD = 25%, DESCRIPTION+REMARK = 75% */
+.history-report-table {
+  table-layout: fixed;
+}
+.history-report-table th,
+.history-report-table td {
+  padding: 3px 5px;
+  font-size: 15px;
+}
+.history-report-table th {
+  font-size: 13px;
+}
+.history-report-table th:first-child,
+.history-report-table td:first-child {
+  width: 5%;
+}
+.history-report-table th:nth-child(2),
+.history-report-table td:nth-child(2) {
+  width: 12%;
+  white-space: nowrap;
+}
+.history-report-table th:nth-child(3),
+.history-report-table td:nth-child(3) {
+  width: 8%;
+}
+.history-report-table th:nth-child(4),
+.history-report-table td:nth-child(4) {
+  width: 47%;
+}
+.history-report-table th:last-child,
+.history-report-table td:last-child {
+  width: 28%;
+}
+
+/* HISTORY 표: No+DATE+PERIOD = 15%, DESCRIPTION+REMARK = 85% */
+.history-report-table th:first-child,
+.history-report-table td:first-child { width: 2.5%; }
+.history-report-table th:nth-child(2),
+.history-report-table td:nth-child(2) { width: 8%; }
+.history-report-table th:nth-child(3),
+.history-report-table td:nth-child(3) { width: 4.5%; }
+.history-report-table th:nth-child(4),
+.history-report-table td:nth-child(4) { width: 57%; }
+.history-report-table th:last-child,
+.history-report-table td:last-child { width: 28%; }
+.history-report-table td:nth-child(-n+3) {
+  padding: 2px 1px;
+  font-size: 11px;
+  letter-spacing: -0.3px;
+}
+.history-report-table th:nth-child(-n+3) {
+  padding: 2px 0;
+  font-size: 9px;
+  letter-spacing: -0.4px;
+}

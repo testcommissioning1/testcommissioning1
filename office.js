@@ -338,6 +338,7 @@ function renderCard() {
   setText("#cardDriverOutput", equipment?.driverOutput);
   setText("#cardManufacturer", equipment?.manufacturer);
   setText("#cardPlaceInst", reportLocation(equipment));
+  setText("#cardStartupDate", equipment?.startupDate);
   setText("#cardDrawingNo", equipment?.drawingNo);
 
   const history = state.inspections

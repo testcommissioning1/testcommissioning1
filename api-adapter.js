@@ -19,6 +19,7 @@
     const match = /^\/api\/([^/?]+)(?:\/([^/?]+))?/.exec(path);
     if (!match) return null;
     if (match[1] === "health") return { action: "health" };
+    if (match[1] === "equipment-bulk") return { action: "bulkUpdate", collection: "equipment", id: "" };
     const collection = COLLECTION_BY_PATH[match[1]];
     const action = ACTION_BY_METHOD[String(method || "GET").toUpperCase()];
     if (!collection || !action) return null;
