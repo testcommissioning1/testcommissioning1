@@ -9,19 +9,36 @@ const statusLabels = {
   open: "미완료"
 };
 
+const WORK_TYPE_LABELS = {
+  repair: "수리",
+  partReplace: "부품 교체",
+  breakdown: "고장 발생",
+  checkedOut: "외부 반출",
+  checkedIn: "반입(복귀)",
+  other: "기타"
+};
+
 const state = {
   equipment: [],
   inspections: [],
   tanks: [],
   tankReadings: [],
   photos: [],
+  workLogs: [],
+  pmTasks: [],
   selectedHistoryId: null,
+  selectedDetailEquipmentId: null,
+  plantZones: [],
+  plantZoneEditMode: false,
+  selectedPlantZoneId: null,
   dashboardDrill: {
     fieldZone: "",
     category0: "",
     category1: ""
   }
 };
+
+const PLANT_ZONE_COLORS = ["pink", "orange", "purple", "blue", "green", "yellow"];
 
 const INSPECTOR_NAMES_KEY = "rotatingEquipmentInspectorNames";
 const LAST_INSPECTOR_NAME_KEY = "rotatingEquipmentLastInspectorName";
@@ -385,6 +402,31 @@ function equipmentFieldZone(item) {
   return item.fieldZone || inferredFieldZone(equipmentCategory(item, 0));
 }
 
+function workLogsForEquipment(equipmentId) {
+  return state.workLogs
+    .filter((item) => item.equipmentId === equipmentId)
+    .slice()
+    .sort(
+      (a, b) =>
+        String(b.workDate || "").localeCompare(String(a.workDate || "")) ||
+        String(b.createdAt || "").localeCompare(String(a.createdAt || ""))
+    );
+}
+
+function isEquipmentCheckedOut(equipmentId) {
+  const logs = workLogsForEquipment(equipmentId).filter(
+    (item) => item.workType === "checkedOut" || item.workType === "checkedIn"
+  );
+  return Boolean(logs.length && logs[0].workType === "checkedOut");
+}
+
+function checkedOutEquipmentList() {
+  return state.equipment
+    .map((equipment) => ({ equipment, logs: workLogsForEquipment(equipment.id) }))
+    .filter(({ logs }) => logs.length && logs[0].workType === "checkedOut")
+    .map(({ equipment, logs }) => ({ equipment, latestLog: logs[0] }));
+}
+
 function uniqueSorted(values) {
   return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
 }
@@ -603,6 +645,79 @@ function selectEquipmentForInspection(equipmentId) {
   category2Select.value = equipment.id;
   updateInspectionCycle();
   return true;
+}
+
+function pmTasksForEquipment(equipment) {
+  if (!equipment) return [];
+  const tasks = state.pmTasks || [];
+  if (Array.isArray(equipment.pmCodes) && equipment.pmCodes.length) {
+    return tasks.filter((task) => equipment.pmCodes.includes(task.code));
+  }
+  const nh3 = String(equipmentFieldZone(equipment) || "").toUpperCase() === "NH3";
+  return tasks.filter((task) => task.target === "pump" || task.target === "motor" || (nh3 && task.target === "ammonia"));
+}
+
+function renderWorkRelatedPmOptions() {
+  const row = $("#workRelatedPmRow");
+  const select = $("#workRelatedPmSelect");
+  if (!row || !select) return;
+
+  const workType = checkedValue($("#workLogForm"), "workType");
+  const showRow = workType === "repair" || workType === "partReplace";
+  const equipment = getEquipmentById($("#workEquipmentSelect").value);
+  const tasks = showRow ? pmTasksForEquipment(equipment) : [];
+
+  row.hidden = !showRow || tasks.length === 0;
+
+  const previous = select.value;
+  select.innerHTML =
+    `<option value="">선택 안 함</option>` +
+    tasks.map((task) => `<option value="${escapeHtml(task.code)}">${escapeHtml(task.name || task.code)}</option>`).join("");
+  if (tasks.some((task) => task.code === previous)) select.value = previous;
+}
+
+function renderWorkLogPicker() {
+  const hidden = $("#workEquipmentSelect");
+  const category0Select = $("#workCategory0Select");
+  const category1Select = $("#workCategory1Select");
+  const category2Select = $("#workCategory2Select");
+  if (!hidden || !category0Select || !category1Select || !category2Select) return;
+
+  if (!state.equipment.length) {
+    hidden.value = "";
+    category0Select.innerHTML = `<option value="">등록된 설비 없음</option>`;
+    category1Select.innerHTML = `<option value="">-</option>`;
+    category2Select.innerHTML = `<option value="">-</option>`;
+    return;
+  }
+
+  const category0Options = uniqueSorted(state.equipment.map((item) => equipmentCategory(item, 0)));
+  setSelectOptions(category0Select, category0Options, category0Select.value || category0Options[0]);
+
+  const category0 = category0Select.value;
+  const category1Options = uniqueSorted(
+    state.equipment.filter((item) => equipmentCategory(item, 0) === category0).map((item) => equipmentCategory(item, 1))
+  );
+  setSelectOptions(category1Select, category1Options, category1Select.value || category1Options[0]);
+
+  const category1 = category1Select.value;
+  const filteredEquipment = state.equipment
+    .filter((item) => equipmentCategory(item, 0) === category0 && equipmentCategory(item, 1) === category1)
+    .sort((a, b) => equipmentCategory(a, 2).localeCompare(equipmentCategory(b, 2)));
+
+  category2Select.innerHTML = filteredEquipment
+    .map((item) => {
+      const label = `${equipmentCategory(item, 2)}${item.equipmentCode ? ` (${item.equipmentCode})` : ""}${isEquipmentCheckedOut(item.id) ? " · 반출중" : ""}`;
+      return `<option value="${escapeHtml(item.id)}">${escapeHtml(label)}</option>`;
+    })
+    .join("");
+
+  if (filteredEquipment.some((item) => item.id === hidden.value)) {
+    category2Select.value = hidden.value;
+  }
+
+  hidden.value = category2Select.value || "";
+  renderWorkRelatedPmOptions();
 }
 
 function renderEquipmentAdminTable() {
@@ -953,6 +1068,7 @@ function isDueToday(equipment, cycle, today = parseLocalDate(todayText())) {
 function dueItemsForToday() {
   const today = parseLocalDate(todayText());
   return state.equipment
+    .filter((equipment) => !isEquipmentCheckedOut(equipment.id))
     .map((equipment) => ({ equipment, cycle: autoCycleForEquipment(equipment, todayText()) }))
     .filter((item) => isDueToday(item.equipment, item.cycle, today));
 }
@@ -991,6 +1107,35 @@ function completionForCycle(cycle, dueItems) {
 
 function dueItemWithStatus(item) {
   return { ...item, done: isCompletedToday(item.equipment.id, item.cycle) };
+}
+
+function isAbnormalAnswers(answers) {
+  if (!answers) return false;
+  return (
+    answers.noise === "yes" ||
+    answers.oilLeak === "yes" ||
+    answers.pumpFanLeak === "yes" ||
+    answers.coolingWaterLeak === "yes" ||
+    answers.filterStrainerBlocked === "yes" ||
+    answers.oilCondition === "부족"
+  );
+}
+
+function todayAbnormalEquipmentIds() {
+  const today = todayText();
+  const ids = new Set();
+
+  state.inspections
+    .filter(
+      (item) => item.inspectionDate === today && item.resultStatus === "complete" && isAbnormalAnswers(item.answers)
+    )
+    .forEach((item) => ids.add(item.equipmentId));
+
+  pendingInspectionPayloads()
+    .filter((item) => item.inspectionDate === today && isAbnormalAnswers(item.answers))
+    .forEach((item) => ids.add(item.equipmentId));
+
+  return ids;
 }
 
 function openDueItemsForToday() {
@@ -1146,20 +1291,154 @@ function renderDashboardTargets(dueItems) {
       .join("");
 }
 
-const PLANT_MAP_ZONES = [
-  "CCR",
-  "AIR COMPRESSOR",
-  "NH3",
-  "BS EDG",
-  "ACC AREA",
-  "STG",
-  "HRSG-1 AREA",
-  "HRSG-2 AREA",
-  "HRSG-3 AREA",
-  "GT-1 BLOCK",
-  "GT-2 BLOCK",
-  "GT-3 BLOCK"
-];
+function plantZoneNameHtml(zone) {
+  return escapeHtml(zone.name || "").replace(/\n/g, "<br />");
+}
+
+function renderPlantZones() {
+  const map = $("#plantMap");
+  if (!map) return;
+
+  const zones = [...state.plantZones].sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
+  const editMode = state.plantZoneEditMode;
+
+  map.innerHTML = zones
+    .map((zone) => {
+      const color = PLANT_ZONE_COLORS.includes(zone.color) ? zone.color : "blue";
+      const classes = [
+        "plant-zone",
+        zone.static ? "plant-zone-static" : "",
+        `zc-${color}`,
+        editMode ? "is-editing" : "",
+        editMode && zone.id === state.selectedPlantZoneId ? "is-selected" : ""
+      ]
+        .filter(Boolean)
+        .join(" ");
+      const style = `left:${zone.left}%;top:${zone.top}%;width:${zone.width}%;height:${zone.height}%;`;
+      const resizeHandle = editMode ? `<span class="plant-zone-resize" data-zone-resize></span>` : "";
+      const badge = zone.static ? "" : `<span class="plant-zone-badge" data-zone-badge>-</span>`;
+      const inner = `<span class="plant-zone-name">${plantZoneNameHtml(zone)}</span>${badge}${resizeHandle}`;
+
+      if (zone.static) {
+        return `<div class="${classes}" data-zone-id="${escapeHtml(zone.id)}" style="${style}">${inner}</div>`;
+      }
+      return `<button class="${classes}" type="button" data-zone="${escapeHtml(zone.zoneKey || "")}" data-zone-id="${escapeHtml(zone.id)}" style="${style}">${inner}</button>`;
+    })
+    .join("");
+
+  renderPlantZoneEditor();
+}
+
+function renderPlantZoneEditor() {
+  const editor = $("#plantZoneEditor");
+  if (!editor) return;
+
+  if (!state.plantZoneEditMode || !state.selectedPlantZoneId) {
+    editor.hidden = true;
+    editor.innerHTML = "";
+    return;
+  }
+
+  const zone = state.plantZones.find((item) => item.id === state.selectedPlantZoneId);
+  if (!zone) {
+    editor.hidden = true;
+    editor.innerHTML = "";
+    return;
+  }
+
+  editor.hidden = false;
+  editor.innerHTML = `
+    <div class="form-row">
+      <label>표시 이름 (줄바꿈은 그대로 두 줄로 표시됩니다)
+        <textarea data-zone-field="name" rows="2">${escapeHtml(zone.name || "")}</textarea>
+      </label>
+    </div>
+    <div class="form-row">
+      <label>연결 구역 키 (설비 등록의 "현장구역"과 값이 같아야 점검 목록과 연결됩니다)
+        <input type="text" data-zone-field="zoneKey" value="${escapeHtml(zone.zoneKey || "")}" placeholder="예: GT-1 BLOCK" />
+      </label>
+    </div>
+    <div class="form-row-inline">
+      <label>왼쪽(%) <input type="number" step="0.1" data-zone-field="left" value="${zone.left}" /></label>
+      <label>위(%) <input type="number" step="0.1" data-zone-field="top" value="${zone.top}" /></label>
+      <label>너비(%) <input type="number" step="0.1" data-zone-field="width" value="${zone.width}" /></label>
+      <label>높이(%) <input type="number" step="0.1" data-zone-field="height" value="${zone.height}" /></label>
+    </div>
+    <div class="form-row">
+      <span>색상</span>
+      <div class="row-actions">
+        ${PLANT_ZONE_COLORS.map(
+          (color) => `
+            <button type="button" class="secondary zone-color-option ${zone.color === color ? "is-active" : ""}" data-zone-color="${color}">
+              <span class="plant-zone-color-swatch zc-${color}"></span>${color}
+            </button>
+          `
+        ).join("")}
+      </div>
+    </div>
+    <div class="form-row">
+      <label class="check-inline">
+        <input type="checkbox" data-zone-field="static" ${zone.static ? "checked" : ""} /> 정적 안내 상자로 표시 (클릭 불가, 점검 목록과 연결 안 함)
+      </label>
+    </div>
+    <div class="row-actions">
+      <button type="button" class="danger-button" id="plantZoneDeleteButton">이 구역 삭제</button>
+      <button type="button" class="secondary" id="plantZoneCloseEditorButton">닫기</button>
+    </div>
+  `;
+}
+
+async function persistPlantZoneUpdate(zoneId, patch) {
+  try {
+    const result = await api(`/api/plant-zones/${encodeURIComponent(zoneId)}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch)
+    });
+    const zone = state.plantZones.find((item) => item.id === zoneId);
+    if (zone && result.item) Object.assign(zone, result.item);
+  } catch (error) {
+    showToast(error.message || "구역 저장에 실패했습니다.", "error");
+  }
+}
+
+async function addPlantZone() {
+  const maxOrder = state.plantZones.reduce((max, z) => Math.max(max, Number(z.order) || 0), 0);
+  const draft = {
+    name: "새 구역",
+    zoneKey: "",
+    color: "blue",
+    static: false,
+    left: 5,
+    top: 5,
+    width: 15,
+    height: 15,
+    order: maxOrder + 1
+  };
+  try {
+    const result = await api("/api/plant-zones", { method: "POST", body: JSON.stringify(draft) });
+    state.plantZones.push(result.item);
+    state.selectedPlantZoneId = result.item.id;
+    renderPlantZones();
+    showToast("구역을 추가했습니다. 위치/이름을 설정하세요.");
+  } catch (error) {
+    showToast(error.message || "구역 추가에 실패했습니다.", "error");
+  }
+}
+
+async function deletePlantZone(zoneId) {
+  const zone = state.plantZones.find((item) => item.id === zoneId);
+  if (!zone) return;
+  if (!window.confirm(`"${zone.name.replace(/\n/g, " ")}" 구역을 삭제할까요?`)) return;
+  try {
+    await api(`/api/plant-zones/${encodeURIComponent(zoneId)}`, { method: "DELETE" });
+    state.plantZones = state.plantZones.filter((item) => item.id !== zoneId);
+    if (state.selectedPlantZoneId === zoneId) state.selectedPlantZoneId = null;
+    renderPlantZones();
+    showToast("구역을 삭제했습니다.");
+  } catch (error) {
+    showToast(error.message || "구역 삭제에 실패했습니다.", "error");
+  }
+}
 
 function zoneStatsToday(dueItems) {
   const statusItems = dueItems.map(dueItemWithStatus);
@@ -1195,7 +1474,7 @@ function renderPlantMap(dueItems) {
 
   const chipsContainer = $("#plantZoneChips");
   if (chipsContainer) {
-    const mappedZones = new Set(PLANT_MAP_ZONES);
+    const mappedZones = new Set(state.plantZones.map((zone) => zone.zoneKey).filter(Boolean));
     const otherZones = [...stats.entries()]
       .filter(([zone]) => !mappedZones.has(zone))
       .sort((a, b) => a[0].localeCompare(b[0]));
@@ -1224,6 +1503,7 @@ function renderDashboard() {
   $("#metricToday").textContent = todayDone;
   $("#metricOpen").textContent = openCount;
   $("#metricMissingStartup").textContent = dueItems.length;
+  $("#metricAbnormal").textContent = todayAbnormalEquipmentIds().size;
 
   $("#cycleBars").innerHTML = cycleStats
     .map(
@@ -1237,6 +1517,7 @@ function renderDashboard() {
     )
     .join("");
 
+  renderPlantZones();
   renderPlantMap(dueItems);
   renderDashboardTargets(dueItems);
 }
@@ -1278,6 +1559,7 @@ function filteredHistoryRows() {
   const startDate = $("#historyStartDate").value;
   const endDate = $("#historyEndDate").value;
   const keyword = $("#historySearch").value.trim().toLowerCase();
+  const abnormalOnly = $("#historyAbnormalOnly")?.checked || false;
   return state.inspections.filter((item) => {
     const cycleOk = !cycle || item.cycle === cycle;
     const equipmentOk = !equipmentId || item.equipmentId === equipmentId;
@@ -1285,7 +1567,8 @@ function filteredHistoryRows() {
     const startOk = !startDate || date >= startDate;
     const endOk = !endDate || date <= endDate;
     const keywordOk = !keyword || String(item.equipmentName || "").toLowerCase().includes(keyword);
-    return cycleOk && equipmentOk && startOk && endOk && keywordOk;
+    const abnormalOk = !abnormalOnly || isAbnormalAnswers(item.answers);
+    return cycleOk && equipmentOk && startOk && endOk && keywordOk && abnormalOk;
   });
 }
 
@@ -1391,29 +1674,228 @@ function renderHistory() {
   renderHistoryDetail(rows.find((item) => item.id === state.selectedHistoryId));
 }
 
+function equipmentInspectionsSorted(equipmentId) {
+  return state.inspections
+    .filter((item) => item.equipmentId === equipmentId)
+    .slice()
+    .sort(
+      (a, b) =>
+        String(b.inspectionDate || "").localeCompare(String(a.inspectionDate || "")) ||
+        String(b.id || "").localeCompare(String(a.id || ""))
+    );
+}
+
+function renderEquipmentDetailPicker() {
+  const category0Select = $("#detailCategory0Select");
+  const category1Select = $("#detailCategory1Select");
+  const category2Select = $("#detailCategory2Select");
+  if (!category0Select || !category1Select || !category2Select) return;
+
+  if (!state.equipment.length) {
+    category0Select.innerHTML = `<option value="">등록된 설비 없음</option>`;
+    category1Select.innerHTML = `<option value="">-</option>`;
+    category2Select.innerHTML = `<option value="">-</option>`;
+    state.selectedDetailEquipmentId = null;
+    return;
+  }
+
+  const selectedEquipment = getEquipmentById(state.selectedDetailEquipmentId);
+
+  const category0Options = uniqueSorted(state.equipment.map((item) => equipmentCategory(item, 0)));
+  const category0Value =
+    category0Select.value || (selectedEquipment ? equipmentCategory(selectedEquipment, 0) : "") || category0Options[0];
+  setSelectOptions(category0Select, category0Options, category0Value);
+
+  const category0 = category0Select.value;
+  const category1Options = uniqueSorted(
+    state.equipment.filter((item) => equipmentCategory(item, 0) === category0).map((item) => equipmentCategory(item, 1))
+  );
+  const category1Value =
+    category1Select.value ||
+    (selectedEquipment && equipmentCategory(selectedEquipment, 0) === category0
+      ? equipmentCategory(selectedEquipment, 1)
+      : "") ||
+    category1Options[0];
+  setSelectOptions(category1Select, category1Options, category1Value);
+
+  const category1 = category1Select.value;
+  const filteredEquipment = state.equipment
+    .filter((item) => equipmentCategory(item, 0) === category0 && equipmentCategory(item, 1) === category1)
+    .sort((a, b) => equipmentCategory(a, 2).localeCompare(equipmentCategory(b, 2)));
+
+  category2Select.innerHTML = filteredEquipment
+    .map((item) => {
+      const label = `${equipmentCategory(item, 2)}${item.equipmentCode ? ` (${item.equipmentCode})` : ""}`;
+      return `<option value="${escapeHtml(item.id)}">${escapeHtml(label)}</option>`;
+    })
+    .join("");
+
+  if (filteredEquipment.some((item) => item.id === state.selectedDetailEquipmentId)) {
+    category2Select.value = state.selectedDetailEquipmentId;
+  } else if (filteredEquipment.length) {
+    category2Select.value = filteredEquipment[0].id;
+  }
+
+  state.selectedDetailEquipmentId = category2Select.value || null;
+}
+
+function workLogHistoryCard(item) {
+  const badge =
+    item.workType === "checkedOut"
+      ? `<span class="badge open">반출</span>`
+      : item.workType === "checkedIn"
+        ? `<span class="badge">반입</span>`
+        : item.workType === "breakdown"
+          ? `<span class="badge open">고장</span>`
+          : `<span class="badge">${escapeHtml(WORK_TYPE_LABELS[item.workType] || "기록")}</span>`;
+  return `
+    <button class="history-card" type="button" data-detail-worklog-id="${escapeHtml(item.id)}">
+      <span class="history-card-main">
+        <span class="history-date">${escapeHtml(item.workDate || "-")}</span>
+        <span class="history-title">${escapeHtml(WORK_TYPE_LABELS[item.workType] || "작업")} · ${escapeHtml(item.worker || "작업자 미입력")}</span>
+        <span class="history-meta">${escapeHtml(item.description || "-")}</span>
+      </span>
+      ${badge}
+    </button>
+  `;
+}
+
+function equipmentDetailHistoryCard(item, badgeHtml, metaText) {
+  return `
+    <button class="history-card" type="button" data-history-jump-id="${escapeHtml(item.id)}">
+      <span class="history-card-main">
+        <span class="history-date">${escapeHtml(item.inspectionDate || "-")}</span>
+        <span class="history-title">${escapeHtml(cycleLabels[item.cycle] || "-")} · ${escapeHtml(item.inspector || "점검자 미입력")}</span>
+        <span class="history-meta">${escapeHtml(metaText || "-")}</span>
+      </span>
+      ${badgeHtml}
+    </button>
+  `;
+}
+
+function renderEquipmentDetailBody() {
+  const container = $("#equipmentDetailBody");
+  if (!container) return;
+
+  const equipment = getEquipmentById(state.selectedDetailEquipmentId);
+  if (!equipment) {
+    container.innerHTML = `<p class="empty">좌측에서 설비를 선택하세요.</p>`;
+    return;
+  }
+
+  const inspections = equipmentInspectionsSorted(equipment.id);
+  const recent = inspections.slice(0, 10);
+  const abnormalList = inspections.filter((item) => isAbnormalAnswers(item.answers));
+  const allPhotos = inspections.flatMap((item) =>
+    inspectionPhotos(item).map((photo) => ({ ...photo, inspectionDate: item.inspectionDate }))
+  );
+
+  const workLogs = workLogsForEquipment(equipment.id);
+  const checkedOut = isEquipmentCheckedOut(equipment.id);
+
+  const infoRows = [
+    detailRow("설비번호", escapeHtml(equipment.equipmentCode || "-")),
+    detailRow("상태", checkedOut ? `<span class="badge open">외부 반출중</span>` : `<span class="badge">정상 운용중</span>`),
+    detailRow("현장구역", escapeHtml(equipmentFieldZone(equipment) || "-")),
+    detailRow("위치", escapeHtml(equipment.location || "-")),
+    detailRow("담당자", escapeHtml(equipment.manager || "-")),
+    detailRow("최초 기동일", escapeHtml(equipment.startupDate || "-")),
+    detailRow("점검주기", escapeHtml((equipment.cycles || []).map((c) => cycleLabels[c] || c).join(", ") || "-")),
+    detailRow("메모", escapeHtml(equipment.notes || "-"))
+  ].join("");
+
+  const recentHtml = recent.length
+    ? recent
+        .map((item) =>
+          equipmentDetailHistoryCard(
+            item,
+            `<span class="badge ${item.resultStatus === "open" ? "open" : ""}">${escapeHtml(statusLabels[item.resultStatus] || item.resultStatus || "완료")}</span>`,
+            isAbnormalAnswers(item.answers) ? "이상 발견" : "정상"
+          )
+        )
+        .join("")
+    : `<p class="empty">점검 이력이 없습니다.</p>`;
+
+  const photoHtml = allPhotos.length
+    ? `
+      <div class="detail-photo-grid">
+        ${allPhotos
+          .slice(0, 24)
+          .map(
+            (photo) => `
+              <a href="${photo.photoUrl}" target="_blank" rel="noreferrer" title="${escapeHtml(photo.inspectionDate || "")}">
+                <img class="detail-photo" src="${photo.photoUrl}" alt="점검 사진" />
+              </a>
+            `
+          )
+          .join("")}
+      </div>
+      <div class="photo-count">${allPhotos.length}장</div>
+    `
+    : `<p class="empty">등록된 사진이 없습니다.</p>`;
+
+  const abnormalHtml = abnormalList.length
+    ? abnormalList
+        .map((item) =>
+          equipmentDetailHistoryCard(item, `<span class="badge open">이상</span>`, item.note || "이상 항목 발견")
+        )
+        .join("")
+    : `<p class="empty">이상 이력이 없습니다.</p>`;
+
+  const workLogHtml = workLogs.length
+    ? workLogs.map((item) => workLogHistoryCard(item)).join("")
+    : `<p class="empty">작업 기록이 없습니다.</p>`;
+
+  container.innerHTML = `
+    <h3 class="detail-section-title">기본정보</h3>
+    <div class="detail-rows">${infoRows}</div>
+
+    <h3 class="detail-section-title">최근 점검결과</h3>
+    <div class="history-list">${recentHtml}</div>
+
+    <h3 class="detail-section-title">작업 기록</h3>
+    <div class="history-list">${workLogHtml}</div>
+
+    <h3 class="detail-section-title">사진 이력</h3>
+    ${photoHtml}
+
+    <h3 class="detail-section-title">이상 이력</h3>
+    <div class="history-list">${abnormalHtml}</div>
+  `;
+}
+
+function renderEquipmentDetail() {
+  renderEquipmentDetailPicker();
+  renderEquipmentDetailBody();
+}
+
 function renderAll() {
   renderEquipmentPicker();
+  renderWorkLogPicker();
   renderEquipmentAdminTable();
   renderDashboard();
   renderHistoryEquipmentFilter();
   renderHistory();
+  renderEquipmentDetail();
   renderUtilityTab();
 }
 
 function renderPhotoPreview() {
-  const grid = $(".photo-preview-grid");
+  const preview = $(".view.is-active .photo-preview");
+  if (!preview) return;
+  const grid = preview.querySelector(".photo-preview-grid");
   const count = state.photos.length;
   grid.innerHTML = state.photos
     .map(
       (photo, index) => `
         <div class="photo-thumb">
-          <img src="${photo.dataUrl}" alt="점검 사진 ${index + 1}" title="${Math.round(photo.compressedBytes / 1024)}KB" />
+          <img src="${photo.dataUrl}" alt="사진 ${index + 1}" title="${Math.round(photo.compressedBytes / 1024)}KB" />
           <button type="button" class="photo-remove" data-remove-photo="${index}" aria-label="사진 ${index + 1} 삭제">×</button>
         </div>`
     )
     .join("");
-  $("#photoPreview").hidden = count === 0;
-  const counter = $("#photoCount");
+  preview.hidden = count === 0;
+  const counter = preview.querySelector(".photo-count");
   if (counter) counter.textContent = count ? `사진 ${count}/${PHOTO_MAX_COUNT}장 · 계속 촬영하면 추가됩니다` : "";
 }
 
@@ -1453,6 +1935,21 @@ function continueAfterInspectionSubmit({ goNextAfterSave, previousEquipmentId, o
   setActiveView("history");
 }
 
+const DEFAULT_PLANT_ZONES = [
+  { id: "default-ccr", zoneKey: "", name: "CCR", color: "pink", static: true, left: 24.0, top: 5.3, width: 17.0, height: 19.7, order: 1 },
+  { id: "default-air-compressor", zoneKey: "", name: "AIR\nCOMPRESSOR", color: "orange", static: true, left: 42.0, top: 5.3, width: 15.0, height: 19.7, order: 2 },
+  { id: "default-nh3", zoneKey: "NH3", name: "NH3", color: "purple", static: false, left: 58.0, top: 5.3, width: 8.0, height: 19.7, order: 3 },
+  { id: "default-bs-edg", zoneKey: "BS EDG", name: "BS EDG", color: "blue", static: false, left: 67.0, top: 5.3, width: 31.0, height: 19.7, order: 4 },
+  { id: "default-acc-area", zoneKey: "ACC AREA", name: "AIR COOLED\nCONDENSER", color: "green", static: false, left: 0.0, top: 34.2, width: 41.0, height: 61.8, order: 5 },
+  { id: "default-stg", zoneKey: "STG", name: "STG", color: "purple", static: false, left: 43.0, top: 34.2, width: 10.0, height: 61.8, order: 6 },
+  { id: "default-hrsg-1", zoneKey: "HRSG-1 AREA", name: "HRSG 11", color: "yellow", static: false, left: 55.0, top: 34.2, width: 13.0, height: 25.0, order: 7 },
+  { id: "default-gt-1", zoneKey: "GT-1 BLOCK", name: "GT 11", color: "blue", static: false, left: 55.0, top: 61.8, width: 13.0, height: 31.6, order: 8 },
+  { id: "default-hrsg-2", zoneKey: "HRSG-2 AREA", name: "HRSG 12", color: "yellow", static: false, left: 70.0, top: 34.2, width: 13.0, height: 25.0, order: 9 },
+  { id: "default-gt-2", zoneKey: "GT-2 BLOCK", name: "GT 12", color: "blue", static: false, left: 70.0, top: 61.8, width: 13.0, height: 31.6, order: 10 },
+  { id: "default-hrsg-3", zoneKey: "HRSG-3 AREA", name: "HRSG 13", color: "yellow", static: false, left: 85.0, top: 34.2, width: 14.0, height: 25.0, order: 11 },
+  { id: "default-gt-3", zoneKey: "GT-3 BLOCK", name: "GT 13", color: "blue", static: false, left: 85.0, top: 61.8, width: 14.0, height: 31.6, order: 12 }
+];
+
 async function loadData({ syncPending = true } = {}) {
   try {
     const [equipment, inspections, tanks, tankReadings] = await Promise.all([
@@ -1465,6 +1962,30 @@ async function loadData({ syncPending = true } = {}) {
     state.inspections = inspections.items || [];
     state.tanks = tanks.items || [];
     state.tankReadings = tankReadings.items || [];
+
+    // 구역 편집 API는 별도로 시도합니다. 배포된 Apps Script 백엔드가 아직
+    // plantZones 컬렉션을 모르는 구버전이어도 나머지 화면은 정상 동작해야 합니다.
+    try {
+      const plantZones = await api("/api/plant-zones");
+      state.plantZones = plantZones.items && plantZones.items.length ? plantZones.items : DEFAULT_PLANT_ZONES;
+    } catch (zoneError) {
+      state.plantZones = DEFAULT_PLANT_ZONES;
+    }
+
+    // 작업 기록 / 정비 항목도 구버전 백엔드에서는 없을 수 있으니 개별적으로 시도합니다.
+    try {
+      const workLogs = await api("/api/work-logs");
+      state.workLogs = workLogs.items || [];
+    } catch (workLogError) {
+      state.workLogs = [];
+    }
+    try {
+      const pmTasks = await api("/api/pm-tasks");
+      state.pmTasks = pmTasks.items || [];
+    } catch (pmError) {
+      state.pmTasks = [];
+    }
+
     renderInspectorSuggestions();
     renderAll();
     if (syncPending) await syncPendingInspections({ silent: true });
@@ -1615,6 +2136,99 @@ function bindEvents() {
 
   $('input[name="inspectionDate"]').addEventListener("change", updateInspectionCycle);
 
+  $("#workCategory0Select")?.addEventListener("change", () => {
+    $("#workCategory1Select").value = "";
+    $("#workEquipmentSelect").value = "";
+    renderWorkLogPicker();
+  });
+
+  $("#workCategory1Select")?.addEventListener("change", () => {
+    $("#workEquipmentSelect").value = "";
+    renderWorkLogPicker();
+  });
+
+  $("#workCategory2Select")?.addEventListener("change", () => {
+    $("#workEquipmentSelect").value = $("#workCategory2Select").value;
+    renderWorkRelatedPmOptions();
+  });
+
+  $$('input[name="workType"]').forEach((input) => {
+    input.addEventListener("change", renderWorkRelatedPmOptions);
+  });
+
+  $("#workLogForm")?.addEventListener("reset", () => {
+    state.photos = [];
+    window.setTimeout(() => {
+      renderPhotoPreview();
+      const dateInput = $('#workLogForm [name="workDate"]');
+      if (dateInput) dateInput.value = todayText();
+      renderWorkRelatedPmOptions();
+    }, 0);
+  });
+
+  $("#workLogForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const equipment = getEquipmentById($("#workEquipmentSelect").value);
+    if (!equipment) {
+      showToast("설비를 먼저 선택하세요.", "error");
+      return;
+    }
+
+    const workerName = normalizeInspectorName(form.elements.worker.value);
+    const payload = {
+      equipmentId: equipment.id,
+      equipmentName: equipment.name,
+      workType: checkedValue(form, "workType"),
+      workDate: form.elements.workDate.value || todayText(),
+      worker: workerName,
+      description: form.elements.description.value.trim(),
+      relatedPmCode: form.elements.relatedPmCode ? form.elements.relatedPmCode.value : "",
+      photos: state.photos
+    };
+
+    try {
+      await api("/api/work-logs", { method: "POST", body: JSON.stringify(payload) });
+
+      if (payload.relatedPmCode) {
+        const task = (state.pmTasks || []).find((item) => item.code === payload.relatedPmCode);
+        try {
+          await api("/api/pm-records", {
+            method: "POST",
+            body: JSON.stringify({
+              doneDate: payload.workDate,
+              equipmentId: equipment.id,
+              equipmentName: equipment.name,
+              pmCode: payload.relatedPmCode,
+              pmName: (task && task.name) || payload.relatedPmCode,
+              hoursAtDone: equipment.runningHours ?? null,
+              doneBy: workerName,
+              note: payload.description
+            })
+          });
+        } catch (pmRecordError) {
+          // 정비 일정 연동은 부가 기능이라 실패해도 작업 기록 저장 자체는 유지합니다.
+        }
+      }
+
+      rememberInspectorName(workerName);
+      form.reset();
+      form.elements.workDate.value = todayText();
+      form.elements.worker.value = workerName;
+      state.photos = [];
+      renderPhotoPreview();
+      renderWorkRelatedPmOptions();
+      showToast(
+        payload.workType === "checkedOut"
+          ? "외부 반출로 기록했습니다. 반입 전까지 오늘 점검 대상에서 제외됩니다."
+          : "작업 기록이 저장되었습니다."
+      );
+      await loadData();
+    } catch (error) {
+      showToast(error.message, "error");
+    }
+  });
+
   $("#nextOpenInspection").addEventListener("click", () => {
     const currentId = $("#equipmentSelect").value;
     if (selectNextOpenInspection(currentId)) {
@@ -1627,6 +2241,7 @@ function bindEvents() {
   });
 
   function handlePlantZoneClick(event) {
+    if (state.plantZoneEditMode) return;
     const zoneEl = event.target.closest("[data-zone]");
     if (!zoneEl) return;
     const zone = zoneEl.dataset.zone || "";
@@ -1649,6 +2264,186 @@ function bindEvents() {
   }
   $("#plantMap")?.addEventListener("click", handlePlantZoneClick);
   $("#plantZoneChips")?.addEventListener("click", handlePlantZoneClick);
+
+  (function setupPlantZoneEditing() {
+    const map = $("#plantMap");
+    if (!map) return;
+
+    let dragState = null;
+
+    function clamp(value, min, max) {
+      return Math.min(max, Math.max(min, value));
+    }
+
+    map.addEventListener("pointerdown", (event) => {
+      if (!state.plantZoneEditMode) return;
+      const zoneEl = event.target.closest("[data-zone-id]");
+      if (!zoneEl) return;
+      const resizeHandle = event.target.closest("[data-zone-resize]");
+      const zoneId = zoneEl.dataset.zoneId;
+      const zone = state.plantZones.find((item) => item.id === zoneId);
+      if (!zone) return;
+
+      event.preventDefault();
+      const rect = map.getBoundingClientRect();
+      dragState = {
+        mode: resizeHandle ? "resize" : "move",
+        zoneId,
+        zone,
+        el: zoneEl,
+        startX: event.clientX,
+        startY: event.clientY,
+        startLeft: zone.left,
+        startTop: zone.top,
+        startWidth: zone.width,
+        startHeight: zone.height,
+        rectWidth: rect.width,
+        rectHeight: rect.height,
+        moved: false
+      };
+      try {
+        zoneEl.setPointerCapture(event.pointerId);
+      } catch {
+        /* ignore */
+      }
+    });
+
+    map.addEventListener("pointermove", (event) => {
+      if (!dragState) return;
+      const dxPercent = ((event.clientX - dragState.startX) / dragState.rectWidth) * 100;
+      const dyPercent = ((event.clientY - dragState.startY) / dragState.rectHeight) * 100;
+      if (Math.abs(dxPercent) > 0.3 || Math.abs(dyPercent) > 0.3) dragState.moved = true;
+
+      if (dragState.mode === "move") {
+        const newLeft = clamp(dragState.startLeft + dxPercent, 0, 100 - dragState.startWidth);
+        const newTop = clamp(dragState.startTop + dyPercent, 0, 100 - dragState.startHeight);
+        dragState.zone.left = Math.round(newLeft * 10) / 10;
+        dragState.zone.top = Math.round(newTop * 10) / 10;
+      } else {
+        const newWidth = clamp(dragState.startWidth + dxPercent, 4, 100 - dragState.startLeft);
+        const newHeight = clamp(dragState.startHeight + dyPercent, 4, 100 - dragState.startTop);
+        dragState.zone.width = Math.round(newWidth * 10) / 10;
+        dragState.zone.height = Math.round(newHeight * 10) / 10;
+      }
+
+      dragState.el.style.left = `${dragState.zone.left}%`;
+      dragState.el.style.top = `${dragState.zone.top}%`;
+      dragState.el.style.width = `${dragState.zone.width}%`;
+      dragState.el.style.height = `${dragState.zone.height}%`;
+    });
+
+    function endDrag(event) {
+      if (!dragState) return;
+      const { zoneId, zone, moved, mode, el } = dragState;
+      try {
+        el.releasePointerCapture(event.pointerId);
+      } catch {
+        /* ignore */
+      }
+      dragState = null;
+
+      if (!moved) {
+        state.selectedPlantZoneId = zoneId;
+        renderPlantZones();
+        return;
+      }
+
+      persistPlantZoneUpdate(
+        zoneId,
+        mode === "move" ? { left: zone.left, top: zone.top } : { width: zone.width, height: zone.height }
+      );
+      if (zoneId === state.selectedPlantZoneId) renderPlantZoneEditor();
+    }
+
+    map.addEventListener("pointerup", endDrag);
+    map.addEventListener("pointercancel", endDrag);
+  })();
+
+  $("#plantZoneEditToggle")?.addEventListener("click", () => {
+    state.plantZoneEditMode = !state.plantZoneEditMode;
+    if (!state.plantZoneEditMode) state.selectedPlantZoneId = null;
+    $("#plantZoneEditToggle").textContent = state.plantZoneEditMode ? "편집 완료" : "구역 편집";
+    if ($("#plantZoneAddButton")) $("#plantZoneAddButton").hidden = !state.plantZoneEditMode;
+    renderPlantZones();
+  });
+
+  $("#plantZoneAddButton")?.addEventListener("click", addPlantZone);
+
+  $("#plantZoneEditor")?.addEventListener("click", (event) => {
+    if (event.target.closest("#plantZoneDeleteButton")) {
+      if (state.selectedPlantZoneId) deletePlantZone(state.selectedPlantZoneId);
+      return;
+    }
+    if (event.target.closest("#plantZoneCloseEditorButton")) {
+      state.selectedPlantZoneId = null;
+      renderPlantZones();
+      return;
+    }
+    const colorButton = event.target.closest("[data-zone-color]");
+    if (colorButton) {
+      const zone = state.plantZones.find((item) => item.id === state.selectedPlantZoneId);
+      if (!zone) return;
+      zone.color = colorButton.dataset.zoneColor;
+      renderPlantZones();
+      persistPlantZoneUpdate(zone.id, { color: zone.color });
+    }
+  });
+
+  $("#plantZoneEditor")?.addEventListener("change", (event) => {
+    const zone = state.plantZones.find((item) => item.id === state.selectedPlantZoneId);
+    if (!zone) return;
+    const field = event.target.dataset.zoneField;
+    if (!field) return;
+
+    if (field === "static") {
+      zone.static = event.target.checked;
+      persistPlantZoneUpdate(zone.id, { static: zone.static });
+      renderPlantZones();
+      return;
+    }
+    if (["left", "top", "width", "height"].includes(field)) {
+      const value = Number(event.target.value);
+      if (Number.isFinite(value)) {
+        zone[field] = value;
+        persistPlantZoneUpdate(zone.id, { [field]: value });
+        renderPlantZones();
+      }
+      return;
+    }
+    const value = field === "zoneKey" ? event.target.value.trim() : event.target.value;
+    zone[field] = value;
+    persistPlantZoneUpdate(zone.id, { [field]: value });
+    renderPlantZones();
+  });
+
+  $("#detailCategory0Select")?.addEventListener("change", () => {
+    $("#detailCategory1Select").value = "";
+    state.selectedDetailEquipmentId = null;
+    renderEquipmentDetail();
+  });
+
+  $("#detailCategory1Select")?.addEventListener("change", () => {
+    state.selectedDetailEquipmentId = null;
+    renderEquipmentDetail();
+  });
+
+  $("#detailCategory2Select")?.addEventListener("change", () => {
+    state.selectedDetailEquipmentId = $("#detailCategory2Select").value || null;
+    renderEquipmentDetailBody();
+  });
+
+  $("#equipmentDetailBody")?.addEventListener("click", (event) => {
+    const jumpButton = event.target.closest("[data-history-jump-id]");
+    if (!jumpButton) return;
+    state.selectedHistoryId = jumpButton.dataset.historyJumpId;
+    $("#historyCycle").value = "";
+    $("#historyEquipment").value = "";
+    $("#historyStartDate").value = "";
+    $("#historyEndDate").value = "";
+    $("#historySearch").value = "";
+    setActiveView("history");
+    renderHistory();
+  });
 
   $("#recentList").addEventListener("click", (event) => {
     const backButton = event.target.closest("[data-dashboard-back]");
@@ -1861,7 +2656,7 @@ function bindEvents() {
   });
 
   // 사진: 촬영/선택할 때마다 "추가"됩니다 (최대 PHOTO_MAX_COUNT 장). 썸네일의 ×로 개별 삭제.
-  $(".photo-preview-grid").addEventListener("click", (event) => {
+  document.addEventListener("click", (event) => {
     const button = event.target.closest("[data-remove-photo]");
     if (!button) return;
     state.photos.splice(Number(button.dataset.removePhoto), 1);
@@ -1908,6 +2703,20 @@ function bindEvents() {
   $("#historyStartDate").addEventListener("change", renderHistory);
   $("#historyEndDate").addEventListener("change", renderHistory);
   $("#historySearch").addEventListener("input", renderHistory);
+  $("#historyAbnormalOnly")?.addEventListener("change", renderHistory);
+
+  $("#metricAbnormalCard")?.addEventListener("click", () => {
+    const today = todayText();
+    $("#historyCycle").value = "";
+    $("#historyEquipment").value = "";
+    $("#historyStartDate").value = today;
+    $("#historyEndDate").value = today;
+    $("#historySearch").value = "";
+    const abnormalCheckbox = $("#historyAbnormalOnly");
+    if (abnormalCheckbox) abnormalCheckbox.checked = true;
+    setActiveView("history");
+    renderHistory();
+  });
   $("#historyList").addEventListener("click", (event) => {
     const button = event.target.closest("[data-history-id]");
     if (!button) return;

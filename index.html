@@ -7,7 +7,7 @@
         <meta name="theme-color" content="#1f4e79" />
     <link rel="manifest" href="manifest.json" />
     <link rel="icon" href="icon-192.png" />
-    <link rel="stylesheet" href="styles.css?v=20260927a" />
+    <link rel="stylesheet" href="styles.css?v=20260930c" />
   </head>
   <body>
     <header class="topbar">
@@ -20,8 +20,10 @@
     <nav class="tabs" aria-label="화면 선택">
       <button class="tab is-active" data-view="dashboard" type="button">현황</button>
       <button class="tab" data-view="inspection" type="button">점검 입력</button>
+      <button class="tab" data-view="worklog" type="button">작업 기록</button>
       <button class="tab" data-view="history" type="button">이력 조회</button>
-      <button class="tab" data-view="equipment" type="button">설비 등록</button>
+      <button class="tab" data-view="equipmentdetail" type="button">설비 상세</button>
+      <button class="tab" data-view="equipment" type="button">누락설비등록</button>
       <button class="tab" data-view="utility" type="button">유틸리티</button>
     </nav>
 
@@ -44,63 +46,25 @@
             <span>오늘 대상</span>
             <strong id="metricMissingStartup">0</strong>
           </article>
+          <article class="metric metric-alert" id="metricAbnormalCard">
+            <span>오늘 이상 발견</span>
+            <strong id="metricAbnormal">0</strong>
+          </article>
         </div>
 
         <section class="panel plant-map-panel">
           <div class="panel-head">
             <h2>발전소 배치도</h2>
-            <span class="hint">구역을 탭하면 아래 점검 목록이 필터링됩니다</span>
-          </div>
-          <div class="plant-map" id="plantMap">
-            <div class="plant-zone plant-zone-static zc-pink" style="left:24.0%;top:5.3%;width:17.0%;height:19.7%;">
-              <span class="plant-zone-name">CCR</span>
+            <div class="panel-head-actions">
+              <span class="hint">구역을 탭하면 아래 점검 목록이 필터링됩니다</span>
+              <button class="secondary" type="button" id="plantZoneAddButton" hidden>+ 구역 추가</button>
+              <button class="secondary" type="button" id="plantZoneEditToggle">구역 편집</button>
             </div>
-            <div class="plant-zone plant-zone-static zc-orange" style="left:42.0%;top:5.3%;width:15.0%;height:19.7%;">
-              <span class="plant-zone-name">AIR<br />COMPRESSOR</span>
-            </div>
-            <button class="plant-zone zc-purple" type="button" data-zone="NH3" style="left:58.0%;top:5.3%;width:8.0%;height:19.7%;">
-              <span class="plant-zone-name">NH3</span>
-              <span class="plant-zone-badge" data-zone-badge>-</span>
-            </button>
-            <button class="plant-zone zc-blue" type="button" data-zone="BS EDG" style="left:67.0%;top:5.3%;width:31.0%;height:19.7%;">
-              <span class="plant-zone-name">BS EDG</span>
-              <span class="plant-zone-badge" data-zone-badge>-</span>
-            </button>
-            <button class="plant-zone zc-green" type="button" data-zone="ACC AREA" style="left:0.0%;top:34.2%;width:41.0%;height:61.8%;">
-              <span class="plant-zone-name">AIR COOLED<br />CONDENSER</span>
-              <span class="plant-zone-badge" data-zone-badge>-</span>
-            </button>
-            <button class="plant-zone zc-purple" type="button" data-zone="STG" style="left:43.0%;top:34.2%;width:10.0%;height:61.8%;">
-              <span class="plant-zone-name">STG</span>
-              <span class="plant-zone-badge" data-zone-badge>-</span>
-            </button>
-            <button class="plant-zone zc-yellow" type="button" data-zone="HRSG-1 AREA" style="left:55.0%;top:34.2%;width:13.0%;height:25.0%;">
-              <span class="plant-zone-name">HRSG 11</span>
-              <span class="plant-zone-badge" data-zone-badge>-</span>
-            </button>
-            <button class="plant-zone zc-blue" type="button" data-zone="GT-1 BLOCK" style="left:55.0%;top:61.8%;width:13.0%;height:31.6%;">
-              <span class="plant-zone-name">GT 11</span>
-              <span class="plant-zone-badge" data-zone-badge>-</span>
-            </button>
-            <button class="plant-zone zc-yellow" type="button" data-zone="HRSG-2 AREA" style="left:70.0%;top:34.2%;width:13.0%;height:25.0%;">
-              <span class="plant-zone-name">HRSG 12</span>
-              <span class="plant-zone-badge" data-zone-badge>-</span>
-            </button>
-            <button class="plant-zone zc-blue" type="button" data-zone="GT-2 BLOCK" style="left:70.0%;top:61.8%;width:13.0%;height:31.6%;">
-              <span class="plant-zone-name">GT 12</span>
-              <span class="plant-zone-badge" data-zone-badge>-</span>
-            </button>
-            <button class="plant-zone zc-yellow" type="button" data-zone="HRSG-3 AREA" style="left:85.0%;top:34.2%;width:14.0%;height:25.0%;">
-              <span class="plant-zone-name">HRSG 13</span>
-              <span class="plant-zone-badge" data-zone-badge>-</span>
-            </button>
-            <button class="plant-zone zc-blue" type="button" data-zone="GT-3 BLOCK" style="left:85.0%;top:61.8%;width:14.0%;height:31.6%;">
-              <span class="plant-zone-name">GT 13</span>
-              <span class="plant-zone-badge" data-zone-badge>-</span>
-            </button>
           </div>
+          <div class="plant-map" id="plantMap"></div>
           <p class="plant-map-note">※ 회색으로 흐리게 표시된 구역은 아직 설비 데이터가 등록되지 않았습니다. (WTR TANK/SERVICE TANK 구역은 이 지도에 포함되어 있지 않습니다)</p>
           <div class="plant-zone-chips" id="plantZoneChips"></div>
+          <div class="plant-zone-editor" id="plantZoneEditor" hidden></div>
         </section>
 
         <div class="panel-grid">
@@ -123,7 +87,7 @@
       <section class="view" id="view-equipment">
         <form class="form-grid panel" id="equipmentForm">
           <div class="panel-head full">
-            <h2>설비 등록</h2>
+            <h2>누락설비등록</h2>
           </div>
           <p class="form-note full">설비 누락 시에만 추가하세요.</p>
           <label>
@@ -392,8 +356,8 @@
             </div>
             <small class="field-help">여러 번 촬영하면 계속 추가됩니다 (최대 6장). 용량은 자동으로 줄여 저장됩니다.</small>
           </label>
-          <figure class="photo-preview full" id="photoPreview" hidden>
-            <figcaption class="photo-count" id="photoCount"></figcaption>
+          <figure class="photo-preview full" hidden>
+            <figcaption class="photo-count"></figcaption>
             <div class="photo-preview-grid"></div>
           </figure>
           <div class="actions full">
@@ -401,6 +365,85 @@
             <button type="button" class="secondary" id="nextOpenInspection">다음 미완료 설비로</button>
             <button type="submit" class="secondary" data-after-submit="next">저장 후 다음</button>
             <button type="submit">점검 제출</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="view" id="view-worklog">
+        <form class="form-grid panel" id="workLogForm">
+          <div class="panel-head full">
+            <h2>작업 기록</h2>
+            <p class="hint">점검과 별도로, 수리·부품교체·고장·반출 등 특별한 작업을 기록합니다.</p>
+          </div>
+          <input type="hidden" name="equipmentId" id="workEquipmentSelect" />
+          <div class="equipment-picker full">
+            <label>
+              구역
+              <select id="workCategory0Select" required></select>
+            </label>
+            <label>
+              계통
+              <select id="workCategory1Select" required></select>
+            </label>
+            <label>
+              설비
+              <select id="workCategory2Select" required></select>
+            </label>
+            <label>
+              작업일
+              <input name="workDate" type="date" required />
+            </label>
+            <label>
+              작업자
+              <input name="worker" placeholder="예: 홍길동" list="inspectorList" autocomplete="off" />
+            </label>
+          </div>
+
+          <fieldset class="radio-row full" id="workTypeRow">
+            <legend>작업 종류</legend>
+            <label><input type="radio" name="workType" value="repair" checked /> 수리</label>
+            <label><input type="radio" name="workType" value="partReplace" /> 부품 교체</label>
+            <label><input type="radio" name="workType" value="breakdown" /> 고장 발생</label>
+            <label><input type="radio" name="workType" value="checkedOut" /> 외부 반출</label>
+            <label><input type="radio" name="workType" value="checkedIn" /> 반입(복귀)</label>
+            <label><input type="radio" name="workType" value="other" /> 기타</label>
+          </fieldset>
+
+          <label class="full" id="workRelatedPmRow" hidden>
+            관련 정비 항목 (선택)
+            <select name="relatedPmCode" id="workRelatedPmSelect">
+              <option value="">선택 안 함</option>
+            </select>
+            <small class="field-help">선택하면 해당 정비 일정이 이 작업일 기준으로 완료 처리됩니다.</small>
+          </label>
+
+          <label class="full">
+            작업 내용
+            <textarea name="description" rows="3" placeholder="예: DE측 베어링 교체, 진동 과다로" required></textarea>
+          </label>
+
+          <label class="full">
+            사진
+            <div class="photo-actions">
+              <label class="file-button">
+                사진 촬영
+                <input name="photoCamera" type="file" accept="image/*" capture="environment" data-photo-input />
+              </label>
+              <label class="file-button secondary">
+                사진 선택
+                <input name="photoGallery" type="file" accept="image/*" multiple data-photo-input />
+              </label>
+            </div>
+            <small class="field-help">여러 번 촬영하면 계속 추가됩니다 (최대 6장). 용량은 자동으로 줄여 저장됩니다.</small>
+          </label>
+          <figure class="photo-preview full" hidden>
+            <figcaption class="photo-count"></figcaption>
+            <div class="photo-preview-grid"></div>
+          </figure>
+
+          <div class="actions full">
+            <button type="reset" class="secondary">초기화</button>
+            <button type="submit">작업 기록 저장</button>
           </div>
         </form>
       </section>
@@ -423,6 +466,10 @@
               <input id="historyStartDate" type="date" aria-label="시작일" />
               <input id="historyEndDate" type="date" aria-label="종료일" />
               <input id="historySearch" placeholder="설비명 검색" />
+              <label class="check-inline">
+                <input type="checkbox" id="historyAbnormalOnly" />
+                이상만 보기
+              </label>
             </div>
           </div>
           <div class="history-list" id="historyList"></div>
@@ -436,11 +483,42 @@
           </section>
         </section>
       </section>
+
+      <section class="view" id="view-equipmentdetail">
+        <section class="history-shell">
+          <aside class="panel history-list-panel equipment-detail-list-panel">
+            <div class="panel-head">
+              <h2>설비 선택</h2>
+            </div>
+            <div class="equipment-picker equipment-detail-picker">
+              <label>
+                구역
+                <select id="detailCategory0Select"></select>
+              </label>
+              <label>
+                계통
+                <select id="detailCategory1Select"></select>
+              </label>
+              <label>
+                설비
+                <select id="detailCategory2Select"></select>
+              </label>
+            </div>
+          </aside>
+
+          <section class="panel history-detail-panel">
+            <div class="panel-head">
+              <h2>설비 상세</h2>
+            </div>
+            <div id="equipmentDetailBody"></div>
+          </section>
+        </section>
+      </section>
     </main>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="config.js"></script>
-    <script src="api-adapter.js?v=20260927b"></script>
-    <script src="app.js?v=20260927j"></script>
+    <script src="api-adapter.js?v=20260930d"></script>
+    <script src="app.js?v=20260930d"></script>
   </body>
 </html>

@@ -7,8 +7,8 @@
         <meta name="theme-color" content="#1f4e79" />
     <link rel="manifest" href="manifest.json" />
     <link rel="icon" href="icon-192.png" />
-    <link rel="stylesheet" href="styles.css?v=20260927a" />
-    <link rel="stylesheet" href="office.css?v=20260927g" />
+    <link rel="stylesheet" href="styles.css?v=20260930c" />
+    <link rel="stylesheet" href="office.css?v=20260930b" />
   </head>
   <body>
     <header class="topbar office-topbar">
@@ -26,6 +26,12 @@
       </div>
     </header>
 
+    <nav class="tabs" aria-label="리포트 화면 선택">
+      <button class="tab is-active" data-view="report" type="button">설비이력</button>
+      <button class="tab" data-view="utility" type="button">유틸리티</button>
+    </nav>
+
+    <section class="view is-active" id="view-report">
     <main class="office-layout">
       <aside class="panel office-sidebar">
         <div class="panel-head">
@@ -42,6 +48,8 @@
 
       <section class="office-main">
         <section class="panel status-panel" id="statusPanel"></section>
+        <section class="panel status-panel pm-panel" id="pmPanel"></section>
+        <section class="panel status-panel worklog-panel" id="worklogPanel"></section>
         <section class="panel master-panel">
           <div class="panel-head">
             <h2>추가 설비 정보</h2>
@@ -57,6 +65,9 @@
             <label>Manufacturer<input name="manufacturer" /></label>
             <label>Location<input name="placeInst" /></label>
             <label>Drawing No.<input name="drawingNo" /></label>
+            <label>최초 기동일<input name="startupDate" type="date" /></label>
+            <label>누적 운전시간(h)<input name="runningHours" type="number" min="0" step="1" /></label>
+            <label>운전시간 기록일<input name="runningHoursDate" type="date" /></label>
           </form>
         </section>
 
@@ -91,6 +102,8 @@
           </table>
 
 
+          <div id="cardMaintenance"></div>
+
           <div class="history-title-line">○ HISTORY</div>
           <table class="history-report-table">
             <thead>
@@ -107,11 +120,27 @@
         </section>
       </section>
     </main>
+    </section>
+
+    <section class="view" id="view-utility">
+      <div class="office-utility-wrap">
+        <section class="panel report-toolbar">
+          <div>
+            <h2>유틸리티 트렌드</h2>
+            <p id="utilityRangeNote">탱크 수위(충수율) 추이</p>
+          </div>
+        </section>
+        <div class="utility-trend-grid" id="utilityTrendGrid"></div>
+      </div>
+    </section>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="config.js"></script>
-    <script src="api-adapter.js?v=20260927b"></script>
+    <script src="api-adapter.js?v=20260930d"></script>
     <script src="office-status.js?v=20260927g"></script>
-    <script src="office.js?v=20260927j"></script>
+    <script src="office-pm.js?v=20260927k"></script>
+    <script src="office-worklog.js?v=20260930d"></script>
+    <script src="office.js?v=20260930d"></script>
+    <script src="office-utility.js?v=20260930a"></script>
   </body>
 </html>

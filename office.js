@@ -4,6 +4,15 @@ const cycleLabels = {
   semiannual: "반기"
 };
 
+const WORK_TYPE_LABELS = {
+  repair: "수리",
+  partReplace: "부품 교체",
+  breakdown: "고장 발생",
+  checkedOut: "외부 반출",
+  checkedIn: "반입(복귀)",
+  other: "기타"
+};
+
 const masterFields = [
   "capacity",
   "head",
@@ -13,7 +22,10 @@ const masterFields = [
   "driverOutput",
   "manufacturer",
   "placeInst",
-  "drawingNo"
+  "drawingNo",
+  "startupDate",
+  "runningHours",
+  "runningHoursDate"
 ];
 
 const PRINT_PAGE_HEIGHT_PX = 940;
@@ -21,7 +33,10 @@ const PRINT_PAGE_HEIGHT_PX = 940;
 const state = {
   equipment: [],
   inspections: [],
-  selectedEquipmentId: null
+  workLogs: [],
+  selectedEquipmentId: null,
+  pmTasks: [],
+  pmRecords: []
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -130,6 +145,31 @@ function equipmentFieldZone(item) {
   return item.fieldZone || inferredFieldZone(category(item, 0));
 }
 
+function workLogsForEquipment(equipmentId) {
+  return state.workLogs
+    .filter((item) => item.equipmentId === equipmentId)
+    .slice()
+    .sort(
+      (a, b) =>
+        String(b.workDate || "").localeCompare(String(a.workDate || "")) ||
+        String(b.createdAt || "").localeCompare(String(a.createdAt || ""))
+    );
+}
+
+function isEquipmentCheckedOut(equipmentId) {
+  const logs = workLogsForEquipment(equipmentId).filter(
+    (item) => item.workType === "checkedOut" || item.workType === "checkedIn"
+  );
+  return Boolean(logs.length && logs[0].workType === "checkedOut");
+}
+
+function workLogDescription(item) {
+  const pieces = [];
+  if (item.worker) pieces.push(item.worker);
+  if (item.description) pieces.push(item.description);
+  return pieces.join(" - ") || "기록 없음";
+}
+
 function uniqueSorted(values) {
   return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
 }
@@ -201,7 +241,7 @@ function renderEquipmentList() {
 function fillMasterForm(equipment) {
   const form = $("#masterForm");
   for (const field of masterFields) {
-    form.elements[field].value = field === "placeInst" ? equipment?.placeInst || equipment?.location || "" : equipment?.[field] || "";
+    form.elements[field].value = field === "placeInst" ? equipment?.placeInst || equipment?.location || "" : equipment?.[field] ?? "";
   }
 }
 
@@ -345,23 +385,36 @@ function renderCard() {
   setText("#cardManufacturer", equipment?.manufacturer);
   setText("#cardPlaceInst", reportLocation(equipment));
   setText("#cardStartupDate", equipment?.startupDate);
+  if (window.renderPmCard) window.renderPmCard(state, equipment);
   setText("#cardDrawingNo", equipment?.drawingNo);
 
-  const history = state.inspections
+  const inspectionEntries = state.inspections
     .filter((item) => item.equipmentId === equipment?.id)
-    .sort((a, b) => String(b.inspectionDate || "").localeCompare(String(a.inspectionDate || "")));
+    .map((item) => ({ kind: "inspection", date: item.inspectionDate || "", item }));
+  const workEntries = state.workLogs
+    .filter((item) => item.equipmentId === equipment?.id)
+    .map((item) => ({ kind: "work", date: item.workDate || "", item }));
+  const history = [...inspectionEntries, ...workEntries].sort(
+    (a, b) =>
+      String(b.date || "").localeCompare(String(a.date || "")) ||
+      String(b.item.createdAt || "").localeCompare(String(a.item.createdAt || ""))
+  );
 
   // INSPECTION TREND 그래프는 레포트에서 제외 (요청)
 
   const rows = Array.from({ length: Math.max(14, history.length) }, (_, index) => {
-    const item = history[index];
+    const entry = history[index];
+    const item = entry?.item;
+    const isWork = entry?.kind === "work";
+    const period = !entry ? "" : isWork ? WORK_TYPE_LABELS[item.workType] || "작업" : cycleLabels[item.cycle] || "";
+    const description = !entry ? "" : isWork ? workLogDescription(item) : inspectionDescription(item);
     return `
       <tr>
         <td>${index + 1}</td>
-        <td>${escapeHtml(item?.inspectionDate || "")}</td>
-        <td>${escapeHtml(item ? cycleLabels[item.cycle] || "" : "")}</td>
-        <td class="history-description">${escapeHtml(item ? inspectionDescription(item) : "")}</td>
-        <td class="history-remark">${inspectionPhotoHtml(item)}</td>
+        <td>${escapeHtml(entry?.date || "")}</td>
+        <td>${escapeHtml(period)}</td>
+        <td class="history-description">${escapeHtml(description)}</td>
+        <td class="history-remark">${entry ? inspectionPhotoHtml(item) : ""}</td>
       </tr>
     `;
   });
@@ -375,7 +428,13 @@ function renderAll() {
   renderEquipmentList();
   renderCard();
   if (window.renderStatusPanel) window.renderStatusPanel(state);
+  if (window.renderPmPanel) window.renderPmPanel(state);
+  if (window.renderWorklogPanel) window.renderWorklogPanel(state);
 }
+
+window.officeApi = (path, options) => api(path, options);
+window.officeReload = () => loadData();
+window.officeToast = (message) => showToast(message);
 
 // 점검 현황의 미완료 설비를 누르면 해당 설비 레포트로 이동
 window.officeSelectEquipment = (id) => {
@@ -387,9 +446,18 @@ window.officeSelectEquipment = (id) => {
 
 async function loadData() {
   try {
-    const [equipment, inspections] = await Promise.all([api("/api/equipment"), api("/api/inspections")]);
+    const [equipment, inspections, pmTasks, pmRecords, workLogs] = await Promise.all([
+      api("/api/equipment"),
+      api("/api/inspections"),
+      api("/api/pm-tasks").catch(() => ({ items: [] })),
+      api("/api/pm-records").catch(() => ({ items: [] })),
+      api("/api/work-logs").catch(() => ({ items: [] }))
+    ]);
     state.equipment = equipment.items || [];
     state.inspections = inspections.items || [];
+    state.pmTasks = pmTasks.items || [];
+    state.pmRecords = pmRecords.items || [];
+    state.workLogs = workLogs.items || [];
     renderAll();
   } catch (error) {
     showToast(error.message, "error");
@@ -467,6 +535,8 @@ const EXCEL_COLUMNS = [
   { key: "drawingNo", header: "Drawing No.", width: 18 },
   { key: "pageNo", header: "Page No.", width: 10 },
   { key: "startupDate", header: "최초 기동일 (YYYY-MM-DD)", width: 16 },
+  { key: "runningHours", header: "누적 운전시간(h)", width: 14 },
+  { key: "runningHoursDate", header: "운전시간 기록일 (YYYY-MM-DD)", width: 18 },
   { key: "manager", header: "담당자", width: 12 },
   { key: "notes", header: "메모", width: 24 }
 ];
@@ -515,11 +585,11 @@ async function downloadExcelTemplate() {
 
 function excelCellText(value, key, XLSX) {
   // 날짜 칸: 엑셀 날짜(숫자)를 YYYY-MM-DD 로 (시간대 영향 없이)
-  if (key === "startupDate" && typeof value === "number" && XLSX) {
+  if ((key === "startupDate" || key === "runningHoursDate") && typeof value === "number" && XLSX) {
     const d = XLSX.SSF.parse_date_code(value);
     if (d) return `${d.y}-${String(d.m).padStart(2, "0")}-${String(d.d).padStart(2, "0")}`;
   }
-  if (key === "startupDate") return String(value ?? "").trim().replace(/[./]/g, "-");
+  if (key === "startupDate" || key === "runningHoursDate") return String(value ?? "").trim().replace(/[./]/g, "-");
   return String(value ?? "").trim();
 }
 

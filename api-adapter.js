@@ -7,7 +7,11 @@
     equipment: "equipment",
     inspections: "inspections",
     tanks: "tanks",
-    "tank-readings": "tankReadings"
+    "tank-readings": "tankReadings",
+    "pm-tasks": "pmTasks",
+    "pm-records": "pmRecords",
+    "plant-zones": "plantZones",
+    "work-logs": "workLogs"
   };
   const ACTION_BY_METHOD = { GET: "list", POST: "create", PATCH: "update", DELETE: "delete" };
 
