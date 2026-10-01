@@ -21,6 +21,7 @@ const WORK_TYPE_LABELS = {
 const state = {
   equipment: [],
   inspections: [],
+  inspectionsFull: [],
   tanks: [],
   tankReadings: [],
   photos: [],
@@ -441,6 +442,9 @@ function setSelectOptions(select, options, selectedValue, labelFor = (item) => i
 function setActiveView(viewName) {
   $$(".tab").forEach((tab) => tab.classList.toggle("is-active", tab.dataset.view === viewName));
   $$(".view").forEach((view) => view.classList.toggle("is-active", view.id === `view-${viewName}`));
+  if (viewName === "history" || viewName === "equipmentdetail") {
+    ensureFullInspectionHistory();
+  }
 }
 
 function setCyclePanel(cycle) {
@@ -1560,7 +1564,7 @@ function filteredHistoryRows() {
   const endDate = $("#historyEndDate").value;
   const keyword = $("#historySearch").value.trim().toLowerCase();
   const abnormalOnly = $("#historyAbnormalOnly")?.checked || false;
-  return state.inspections.filter((item) => {
+  return fullInspectionHistory().filter((item) => {
     const cycleOk = !cycle || item.cycle === cycle;
     const equipmentOk = !equipmentId || item.equipmentId === equipmentId;
     const date = item.inspectionDate || "";
@@ -1612,7 +1616,7 @@ function renderHistoryDetail(item) {
   const rows = [
     detailRow("설비명", escapeHtml(item.equipmentName || "-")),
     detailRow("설비번호", escapeHtml(equipment.equipmentCode || "-")),
-    detailRow("점검일", escapeHtml(item.inspectionDate || "-")),
+    detailRow("점검일", escapeHtml(formatInspectionDateTime(item))),
     detailRow("점검자", escapeHtml(item.inspector || "-")),
     detailRow("점검 주기", escapeHtml(cycleLabels[item.cycle] || "-")),
     detailRow("완료 여부", `<span class="badge ${item.resultStatus === "open" ? "open" : ""}">${escapeHtml(statusLabels[item.resultStatus] || item.resultStatus || "완료")}</span>`),
@@ -1654,7 +1658,7 @@ function renderHistory() {
           (item) => `
             <button class="history-card ${item.id === state.selectedHistoryId ? "is-active" : ""}" type="button" data-history-id="${escapeHtml(item.id)}">
               <span class="history-card-main">
-                <span class="history-date">${escapeHtml(item.inspectionDate || "-")}</span>
+                <span class="history-date">${escapeHtml(formatInspectionDateTime(item))}</span>
                 <span class="history-title">${escapeHtml(item.equipmentName || "-")}</span>
                 <span class="history-meta">${escapeHtml(item.inspector || "점검자 미입력")} / ${cycleLabels[item.cycle] || "-"}</span>
               </span>
@@ -1675,7 +1679,7 @@ function renderHistory() {
 }
 
 function equipmentInspectionsSorted(equipmentId) {
-  return state.inspections
+  return fullInspectionHistory()
     .filter((item) => item.equipmentId === equipmentId)
     .slice()
     .sort(
@@ -1764,7 +1768,7 @@ function equipmentDetailHistoryCard(item, badgeHtml, metaText) {
   return `
     <button class="history-card" type="button" data-history-jump-id="${escapeHtml(item.id)}">
       <span class="history-card-main">
-        <span class="history-date">${escapeHtml(item.inspectionDate || "-")}</span>
+        <span class="history-date">${escapeHtml(formatInspectionDateTime(item))}</span>
         <span class="history-title">${escapeHtml(cycleLabels[item.cycle] || "-")} · ${escapeHtml(item.inspector || "점검자 미입력")}</span>
         <span class="history-meta">${escapeHtml(metaText || "-")}</span>
       </span>
@@ -1912,9 +1916,11 @@ function resetInspectionFormAfterSubmit(inspectorName) {
   updateOilRefillVisibility();
 }
 
-function continueAfterInspectionSubmit({ goNextAfterSave, previousEquipmentId, offline = false, equipmentName = "" }) {
+function continueAfterInspectionSubmit({ goNextAfterSave, previousEquipmentId, offline = false, reallyOffline = false, equipmentName = "" }) {
   const title = offline ? "폰에 임시 저장했습니다" : "점검이 저장되었습니다";
-  const offlineNote = "인터넷이 연결되면 자동으로 전송됩니다. (오른쪽 아래 미전송 표시 확인)";
+  const offlineNote = reallyOffline
+    ? "인터넷이 연결되면 자동으로 전송됩니다. (오른쪽 아래 미전송 표시 확인)"
+    : "인터넷 연결은 되어 있지만 서버 전송에 실패해서 폰에 임시 저장했습니다. 사진 용량이 크거나 일시적인 문제일 수 있어요. 오른쪽 아래 '지금 전송' 버튼으로 다시 시도해보세요.";
   const name = equipmentName ? `${equipmentName}\n` : "";
 
   if (goNextAfterSave) {
@@ -1950,16 +1956,61 @@ const DEFAULT_PLANT_ZONES = [
   { id: "default-gt-3", zoneKey: "GT-3 BLOCK", name: "GT 13", color: "blue", static: false, left: 85.0, top: 61.8, width: 14.0, height: 31.6, order: 12 }
 ];
 
+const RECENT_INSPECTION_DAYS = 7;
+let fullInspectionHistoryPromise = null;
+
+// 점검 이력 전체 목록(설비 상세 / 이력 조회 탭에서만 필요)은 처음엔 불러오지 않고,
+// 해당 탭을 열 때만 한 번 따로 불러옵니다. 그 전까지는 최근 N일치(state.inspections)로 대체합니다.
+function fullInspectionHistory() {
+  return state.inspectionsFull.length ? state.inspectionsFull : state.inspections;
+}
+
+async function ensureFullInspectionHistory() {
+  if (state.inspectionsFull.length) return state.inspectionsFull;
+  if (fullInspectionHistoryPromise) return fullInspectionHistoryPromise;
+  fullInspectionHistoryPromise = api("/api/inspections")
+    .then((result) => {
+      state.inspectionsFull = result.items || [];
+      renderHistory();
+      renderEquipmentDetail();
+      return state.inspectionsFull;
+    })
+    .catch((error) => {
+      console.error("전체 점검 이력을 불러오지 못했습니다.", error);
+      return [];
+    })
+    .finally(() => {
+      fullInspectionHistoryPromise = null;
+    });
+  return fullInspectionHistoryPromise;
+}
+
+function formatTimeFromIso(iso) {
+  if (!iso) return "";
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatInspectionDateTime(item) {
+  const date = item.inspectionDate || "-";
+  const time = formatTimeFromIso(item.createdAt);
+  return time ? `${date} ${time}` : date;
+}
+
 async function loadData({ syncPending = true } = {}) {
   try {
     const [equipment, inspections, tanks, tankReadings] = await Promise.all([
       api("/api/equipment"),
-      api("/api/inspections"),
+      api(`/api/inspections?days=${RECENT_INSPECTION_DAYS}`),
       api("/api/tanks"),
       api("/api/tank-readings")
     ]);
     state.equipment = equipment.items || [];
     state.inspections = inspections.items || [];
+    // 최근 N일치로 갱신되었으니, 이전에 따로 불러둔 전체 이력 캐시는 비워서
+    // 이력 조회 / 설비 상세 탭을 다시 열 때 최신 데이터로 다시 받아오게 합니다.
+    state.inspectionsFull = [];
     state.tanks = tanks.items || [];
     state.tankReadings = tankReadings.items || [];
 
@@ -2624,7 +2675,7 @@ function bindEvents() {
       const rememberedInspector = rememberInspectorName(inspectorName);
       resetInspectionFormAfterSubmit(rememberedInspector);
       renderDashboard();
-      continueAfterInspectionSubmit({ goNextAfterSave, previousEquipmentId: equipment.id, offline: true, equipmentName: equipment.name });
+      continueAfterInspectionSubmit({ goNextAfterSave, previousEquipmentId: equipment.id, offline: true, reallyOffline: !navigator.onLine, equipmentName: equipment.name });
     } finally {
       inspectionSubmitting = false;
       submitButtons.forEach((button) => (button.disabled = false));

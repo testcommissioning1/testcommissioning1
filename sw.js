@@ -1,4 +1,4 @@
-const CACHE_NAME = "rotating-pm-gas-20260930e";
+const CACHE_NAME = "rotating-pm-gas-20261001b";
 const APP_SHELL = [
   "./",
   "index.html",
@@ -7,8 +7,8 @@ const APP_SHELL = [
   "manifest.json",
   "icon-192.png",
   "styles.css?v=20260930c",
-  "api-adapter.js?v=20260930d",
-  "app.js?v=20260930d",
+  "api-adapter.js?v=20261001a",
+  "app.js?v=20261001b",
   "office.css?v=20260930b",
   "office-status.js?v=20260927g",
   "office-pm.js?v=20260927k",

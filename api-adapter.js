@@ -20,14 +20,22 @@
   }
 
   function route(path, method) {
-    const match = /^\/api\/([^/?]+)(?:\/([^/?]+))?/.exec(path);
+    const queryIndex = path.indexOf("?");
+    const pathname = queryIndex === -1 ? path : path.slice(0, queryIndex);
+    const extraParams = {};
+    if (queryIndex !== -1) {
+      new URLSearchParams(path.slice(queryIndex + 1)).forEach((value, key) => {
+        extraParams[key] = value;
+      });
+    }
+    const match = /^\/api\/([^/?]+)(?:\/([^/?]+))?/.exec(pathname);
     if (!match) return null;
-    if (match[1] === "health") return { action: "health" };
-    if (match[1] === "equipment-bulk") return { action: "bulkUpdate", collection: "equipment", id: "" };
+    if (match[1] === "health") return { action: "health", params: extraParams };
+    if (match[1] === "equipment-bulk") return { action: "bulkUpdate", collection: "equipment", id: "", params: extraParams };
     const collection = COLLECTION_BY_PATH[match[1]];
     const action = ACTION_BY_METHOD[String(method || "GET").toUpperCase()];
     if (!collection || !action) return null;
-    return { action, collection, id: match[2] ? decodeURIComponent(match[2]) : "" };
+    return { action, collection, id: match[2] ? decodeURIComponent(match[2]) : "", params: extraParams };
   }
 
   function fakeResponse(status, data) {
@@ -153,6 +161,11 @@
       const query = new URLSearchParams({ action: r.action });
       if (r.collection) query.set("collection", r.collection);
       if (code) query.set("code", code);
+      if (r.params) {
+        Object.keys(r.params).forEach((key) => {
+          if (key !== "action" && key !== "collection" && key !== "code") query.set(key, r.params[key]);
+        });
+      }
       try {
         response = await fetch(`${url}?${query}`, { method: "GET", redirect: "follow" });
       } catch (error) {
